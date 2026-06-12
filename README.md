@@ -32,7 +32,7 @@ argus/ (프로젝트 루트)
     │       └── endpoints/
     │           ├── scan.py      # 스캔 요청 엔드포인트
     │
-    ├── worker/                 # [A팀/B팀/공통] Celery 비동기 태스크
+    ├── worker/                 # [공통] Celery 비동기 태스크
     │   └── tasks.py            # 각 엔진의 서비스 기능을 호출하는 Celery Task 정의
     │
     └── services/               # [A, B, C팀 각각의 핵심 비즈니스 로직]
@@ -50,8 +50,8 @@ argus/ (프로젝트 루트)
 
 ### 팀별 역할 분담
 1. **[공통] `argus/core/`**: 프로젝트 설정, 데이터베이스 연결 객체, 데이터 모델(SQLModel), Celery 초기화 등 공통 리소스를 한곳에서 관리합니다.
-2. **[C팀 - 2명] `argus/api/`**: 플랫폼의 전체적인 진입점 역할을 수행하며, 사용자 요청을 받아 비동기 큐에 할당하고 이력을 기록하는 제어 레이어(Control Plane)입니다.
-3. **[A팀/B팀/공통] `argus/worker/`**: Celery 비동기 태스크들의 진입점입니다. `services/` 모듈에 작성된 비즈니스 로직들을 호출하여 실행시킵니다.
+2. **[공통] `argus/api/`**: 플랫폼의 전체적인 진입점 역할을 수행하며, 사용자 요청을 받아 비동기 큐에 할당하고 이력을 기록하는 제어 레이어(Control Plane)입니다.
+3. **[공통] `argus/worker/`**: Celery 비동기 태스크들의 진입점입니다. `services/` 모듈에 작성된 비즈니스 로직들을 호출하여 실행시킵니다.
 4. **[A팀 - 3명] `argus/services/scan/`**: 3가지 핵심 스캐너 도구를 구동하고 결과를 파싱하며, AI(LLM) API를 연동하여 위험도 우선순위를 산정하고 가이드를 생성합니다.
 5. **[B팀 - 2명] `argus/services/capture/`**: Selenium Headless 브라우저를 구동하여 취약점을 검증하고 증적 화면을 캡처합니다.
 6. **[C팀 - 2명] `argus/services/report/`**: Reachability 검증 및 WeasyPrint를 활용한 최종 한글 PDF 리포트를 생성합니다.
