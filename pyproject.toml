@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "argus"
+version = "0.1.0"
+description = "AI 기반 통합 보안 자동 진단 시스템 백엔드 플랫폼"
+authors = ["Argus Team <team@argus.local>"]
+readme = "README.md"
+packages = []
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+celery = "^5.3.6"
+redis = "^5.0.1"
+sqlmodel = "^0.0.16"
+psycopg2-binary = "^2.9.9"
+openai = "^1.12.0"
+weasyprint = "^61.1"
+selenium = "^4.18.1"
+pydantic-settings = "^2.2.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
