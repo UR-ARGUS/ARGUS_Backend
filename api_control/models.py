@@ -1,1 +1,0 @@
-# SQLModel or SQLAlchemy Models

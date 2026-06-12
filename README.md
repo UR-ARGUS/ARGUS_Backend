@@ -11,46 +11,68 @@
 
 ## 📂 폴더 구조 및 팀별 역할 분담
 
-### 1. [공통/공유] `api_control/` (전체 팀 공동 사용)
-- 플랫폼의 전체적인 진입점 역할을 수행하며, 사용자 요청을 받아 비동기 큐에 할당하고 이력을 기록하는 제어 레이어(Control Plane)입니다. 모든 팀이 공동으로 관리하고 참조합니다.
-  - `main.py`: FastAPI 엔트리포인트
-  - `models.py`: PostgreSQL DB 테이블 모델링
-  - `queue.py`: Celery 비동기 작업 큐 발행기
+단일 루트 패키지인 `argus/` 구조 아래에서 협업을 진행합니다.
 
-### 2. [A팀 - 3명] `scan_engines/` (Core Scan & AI Priority Engines)
-- Celery Worker 환경에서 3가지 핵심 스캐너 도구를 실제로 구동하고 결과를 파싱하며, AI(LLM) API를 연동하여 스캔한 취약점의 위험도 우선순위를 산정하고 한글 설명 가이드를 생성합니다.
-  - `tasks.py`: Celery 비동기 태스크 모음
-  - `zap_engine.py` / `semgrep_engine.py` / `ssl_engine.py`: 스캐너 모듈
-  - `ai_advisor.py`: AI 조치 가이드 및 우선순위 생성 모듈
+```text
+argus/ (프로젝트 루트)
+├── pyproject.toml
+├── README.md
+├── .env
+└── argus/                      # 전체 소스코드를 담는 단일 루트 패키지
+    ├── core/                   # [공통] 설정, 데이터베이스, 공통 유틸리티
+    │   ├── config.py           # 환경 변수 및 설정 (Pydantic Settings)
+    │   ├── database.py         # SQLModel 엔진 및 Session 설정
+    │   ├── models.py           # 공통 DB 테이블 스키마 선언
+    │   └── celery_app.py       # Celery 인스턴스 초기화 및 공통 설정
+    │
+    ├── api/                    # [C팀/공통] API Control Plane (FastAPI)
+    │   ├── main.py             # FastAPI 엔트리포인트
+    │   └── v1/                 # 버전별 라우터 분리
+    │       ├── api.py          # 라우터들을 통합하는 엔트리포인트
+    │       └── endpoints/
+    │           ├── scan.py      # 스캔 요청 엔드포인트
+    │
+    ├── worker/                 # [A팀/B팀/공통] Celery 비동기 태스크
+    │   └── tasks.py            # 각 엔진의 서비스 기능을 호출하는 Celery Task 정의
+    │
+    └── services/               # [A, B, C팀 각각의 핵심 비즈니스 로직]
+        ├── scan/               # A팀: 스캔 엔진 핵심 로직
+        │   ├── zap.py
+        │   ├── semgrep.py
+        │   ├── ssl.py
+        │   └── ai_advisor.py
+        ├── capture/            # B팀: Selenium 증적 캡처 로직
+        │   └── selenium.py
+        └── report/             # C팀: 도달성 검증 및 리포트 생성 로직
+            ├── reachability.py
+            └── generator.py
+```
 
-### 3. [B팀 - 2명] `selenium_capture/` (Evidence Capturer)
-- 진단 결과에 대하여 Selenium Headless를 통해 스캔 및 Replay하여 화면에 대한 자동 증적을 캡처하는 전담 팀 모듈입니다.
-  - `selenium_engine.py`: Replay - Headless Browser를 이용한 공격 재현 및 스크린샷 캡처
-
-### 4. [C팀 - 2명] `intelligence_report/` (AI Analysis & PDF Report Builder)
-- 오탐률을 줄이기 위한 Reachability 교차 검증을 수행하고, 축적된 데이터를 모아 WeasyPrint로 최종 한글 PDF 보고서를 만듭니다.
-  - `check_reachability.py`: 코드(SAST)와 주소(DAST) 매핑으로 오탐 교차 검증
-  - `report_generator.py`: WeasyPrint 기반 PDF/HTML 레포트 빌더
+### 팀별 역할 분담
+1. **[공통] `argus/core/`**: 프로젝트 설정, 데이터베이스 연결 객체, 데이터 모델(SQLModel), Celery 초기화 등 공통 리소스를 한곳에서 관리합니다.
+2. **[C팀 - 2명] `argus/api/`**: 플랫폼의 전체적인 진입점 역할을 수행하며, 사용자 요청을 받아 비동기 큐에 할당하고 이력을 기록하는 제어 레이어(Control Plane)입니다.
+3. **[A팀/B팀/공통] `argus/worker/`**: Celery 비동기 태스크들의 진입점입니다. `services/` 모듈에 작성된 비즈니스 로직들을 호출하여 실행시킵니다.
+4. **[A팀 - 3명] `argus/services/scan/`**: 3가지 핵심 스캐너 도구를 구동하고 결과를 파싱하며, AI(LLM) API를 연동하여 위험도 우선순위를 산정하고 가이드를 생성합니다.
+5. **[B팀 - 2명] `argus/services/capture/`**: Selenium Headless 브라우저를 구동하여 취약점을 검증하고 증적 화면을 캡처합니다.
+6. **[C팀 - 2명] `argus/services/report/`**: Reachability 검증 및 WeasyPrint를 활용한 최종 한글 PDF 리포트를 생성합니다.
 
 ---
 
 ## 🔄 플랫폼 전체 진단 파이프라인 흐름 (Workflow Sequence)
 
-플랫폼의 전체적인 취약점 진단 및 리포트 생성 프로세스는 다음과 같은 순서로 유기적으로 수행됩니다.
-
 ```mermaid
 graph TD
-    A[1. 스캔 단계: scan_engines] -->|진단 결과 도출| B[2. 캡처 단계: selenium_capture]
-    B -->|공격 재현 스크린샷 확보| C[3. 보고서 단계: intelligence_report]
+    A["1. 스캔 단계: services/scan"] -->|진단 결과 도출| B["2. 캡처 단계: services/capture"]
+    B -->|공격 재현 스크린샷 확보| C["3. 보고서 단계: services/report"]
     C -->|AI 오탐 교차검증 & PDF 렌더링| D[4. 최종 진단 보고서 완료]
 ```
 
-1. **스캔 및 AI 우선순위 단계 (`scan_engines` - A팀):**
-   - 사용자가 요청한 웹 사이트에 대하여 ZAP(동적), Semgrep(정적), SSL Labs를 통해 취약점 진단을 수행한 후, **AI(LLM) API를 사용하여 각 취약점의 위험도 우선순위를 지정하고 한글 설명 가이드를 생성**합니다.
-2. **캡처 단계 (`selenium_capture` - B팀):**
-   - 1단계 결과에서 검출된 주요 취약점들을 바탕으로 Selenium Headless 브라우저를 구동하여 실제 공격 시나리오를 Replay하고 증적 스크린샷 화면을 캡처합니다.
-3. **보고서 및 검증 단계 (`intelligence_report` - C팀):**
-   - 앞서 확보한 진단 데이터와 캡처된 증적 화면들을 종합하여 Reachability 교차 검증을 통해 오탐을 걸러내고, 최종적으로 WeasyPrint를 활용해 한글 PDF 리포트를 빌드합니다.
+1. **스캔 및 AI 우선순위 단계 (`argus/services/scan`):**
+   - ZAP(동적), Semgrep(정적), SSL Labs를 통해 취약점 진단을 수행한 후, AI(LLM) API를 사용하여 각 취약점의 위험도 우선순위를 지정하고 한글 설명 가이드를 생성합니다.
+2. **캡처 단계 (`argus/services/capture`):**
+   - 검출된 취약점들을 바탕으로 Selenium Headless 브라우저를 구동하여 실제 공격 시나리오를 Replay하고 증적 스크린샷 화면을 캡처합니다.
+3. **보고서 및 검증 단계 (`argus/services/report`):**
+   - Reachability 교차 검증을 통해 오탐을 필터링하고, WeasyPrint를 활용해 최종 한글 PDF 리포트를 생성합니다.
 
 ---
 
@@ -71,12 +93,12 @@ OPENAI_API_KEY=your_openai_api_key_here
 
 ### 3. 서비스 실행
 
-**FastAPI 웹 서버 (C팀):**
+**FastAPI 웹 서버 실행:**
 ```bash
-poetry run uvicorn api_control.main:app --reload
+poetry run uvicorn argus.api.main:app --reload
 ```
 
-**Celery Worker 실행 (A팀/B팀):**
+**Celery Worker 실행:**
 ```bash
-poetry run celery -A scan_engines.tasks worker --loglevel=info
+poetry run celery -A argus.core.celery_app worker --loglevel=info
 ```
