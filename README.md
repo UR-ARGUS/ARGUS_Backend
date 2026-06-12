@@ -25,7 +25,7 @@ argus/ (프로젝트 루트)
     │   ├── models.py           # 공통 DB 테이블 스키마 선언
     │   └── celery_app.py       # Celery 인스턴스 초기화 및 공통 설정
     │
-    ├── api/                    # [C팀/공통] API Control Plane (FastAPI)
+    ├── api/                    # [공통] API Control Plane (FastAPI)
     │   ├── main.py             # FastAPI 엔트리포인트
     │   └── v1/                 # 버전별 라우터 분리
     │       ├── api.py          # 라우터들을 통합하는 엔트리포인트
