@@ -1,0 +1,164 @@
+[
+  {
+    "job_id": "ad2869b5",
+    "before_path": "./captures\\ad2869b5_세션_쿠키_csrf_취약점_검증_1_before.png",
+    "input_path": "./captures\\ad2869b5_세션_쿠키_csrf_취약점_검증_2_input.png",
+    "result_path": "./captures\\ad2869b5_세션_쿠키_csrf_취약점_검증_3_result.png",
+    "confirmed": false,
+    "failure_reason": "evidence 문자열이 현재 응답에서 발견되지 않음 (오탐 가능성)",
+    "highlight_box": null
+  },
+  {
+    "job_id": "18a21587",
+    "before_path": "./captures\\18a21587_세션_쿠키_csrf_취약점_검증_1_before.png",
+    "input_path": "./captures\\18a21587_세션_쿠키_csrf_취약점_검증_2_input.png",
+    "result_path": "./captures\\18a21587_세션_쿠키_csrf_취약점_검증_3_result.png",
+    "confirmed": false,
+    "failure_reason": "evidence 문자열이 현재 응답에서 발견되지 않음 (오탐 가능성)",
+    "highlight_box": null
+  },
+  {
+    "job_id": "f3702c3f",
+    "before_path": "./captures\\f3702c3f_애플리케이션_시스템_예외_노출_1_before.png",
+    "input_path": "./captures\\f3702c3f_애플리케이션_시스템_예외_노출_2_input.png",
+    "result_path": "./captures\\f3702c3f_애플리케이션_시스템_예외_노출_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "d192070b",
+    "before_path": "./captures\\d192070b_애플리케이션_시스템_예외_노출_1_before.png",
+    "input_path": "./captures\\d192070b_애플리케이션_시스템_예외_노출_2_input.png",
+    "result_path": "./captures\\d192070b_애플리케이션_시스템_예외_노출_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "02396fe8",
+    "before_path": "./captures\\02396fe8_애플리케이션_시스템_예외_노출_1_before.png",
+    "input_path": "./captures\\02396fe8_애플리케이션_시스템_예외_노출_2_input.png",
+    "result_path": "./captures\\02396fe8_애플리케이션_시스템_예외_노출_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "9b3b5a34",
+    "before_path": "./captures\\9b3b5a34_애플리케이션_시스템_예외_노출_1_before.png",
+    "input_path": "./captures\\9b3b5a34_애플리케이션_시스템_예외_노출_2_input.png",
+    "result_path": "./captures\\9b3b5a34_애플리케이션_시스템_예외_노출_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "7ca4b1eb",
+    "before_path": "./captures\\7ca4b1eb_애플리케이션_시스템_예외_노출_1_before.png",
+    "input_path": "./captures\\7ca4b1eb_애플리케이션_시스템_예외_노출_2_input.png",
+    "result_path": "./captures\\7ca4b1eb_애플리케이션_시스템_예외_노출_3_result.png",
+    "confirmed": false,
+    "failure_reason": "정상 응답 코드 (HTTP 401) — 서버 에러 미재현",
+    "highlight_box": null
+  },
+  {
+    "job_id": "e457ff06",
+    "before_path": "./captures\\e457ff06_애플리케이션_시스템_예외_노출_1_before.png",
+    "input_path": "./captures\\e457ff06_애플리케이션_시스템_예외_노출_2_input.png",
+    "result_path": "./captures\\e457ff06_애플리케이션_시스템_예외_노출_3_result.png",
+    "confirmed": false,
+    "failure_reason": "정상 응답 코드 (HTTP 401) — 서버 에러 미재현",
+    "highlight_box": null
+  },
+  {
+    "job_id": "3b5955c6",
+    "before_path": "./captures\\3b5955c6_버퍼_오버플로우_1_before.png",
+    "input_path": "./captures\\3b5955c6_버퍼_오버플로우_2_input.png",
+    "result_path": "./captures\\3b5955c6_버퍼_오버플로우_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "2b07961a",
+    "before_path": "./captures\\2b07961a_버퍼_오버플로우_1_before.png",
+    "input_path": "./captures\\2b07961a_버퍼_오버플로우_2_input.png",
+    "result_path": "./captures\\2b07961a_버퍼_오버플로우_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "82120df2",
+    "before_path": "./captures\\82120df2_버퍼_오버플로우_1_before.png",
+    "input_path": "./captures\\82120df2_버퍼_오버플로우_2_input.png",
+    "result_path": "./captures\\82120df2_버퍼_오버플로우_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "104a351b",
+    "before_path": "./captures\\104a351b_버퍼_오버플로우_1_before.png",
+    "input_path": "./captures\\104a351b_버퍼_오버플로우_2_input.png",
+    "result_path": "./captures\\104a351b_버퍼_오버플로우_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "6986182b",
+    "before_path": "./captures\\6986182b_버퍼_오버플로우_1_before.png",
+    "input_path": "./captures\\6986182b_버퍼_오버플로우_2_input.png",
+    "result_path": "./captures\\6986182b_버퍼_오버플로우_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "44eb161d",
+    "before_path": "./captures\\44eb161d_포맷_스트링_에러_1_before.png",
+    "input_path": "./captures\\44eb161d_포맷_스트링_에러_2_input.png",
+    "result_path": "./captures\\44eb161d_포맷_스트링_에러_3_result.png",
+    "confirmed": true,
+    "failure_reason": "서버 에러 상태 코드 확인: HTTP 500",
+    "highlight_box": null
+  },
+  {
+    "job_id": "ef55c620",
+    "before_path": "./captures\\ef55c620_경로_추적_path_traversal_1_before.png",
+    "input_path": "./captures\\ef55c620_경로_추적_path_traversal_2_input.png",
+    "result_path": "./captures\\ef55c620_경로_추적_path_traversal_3_result.png",
+    "confirmed": false,
+    "failure_reason": "evidence 필드 없음 — 자동 판단 불가, 수동 확인 필요",
+    "highlight_box": null
+  },
+  {
+    "job_id": "ae23ab57",
+    "before_path": "./captures\\ae23ab57_크로스_사이트_스크립팅_취약점_json_응답에_영구적_1_before.png",
+    "input_path": "./captures\\ae23ab57_크로스_사이트_스크립팅_취약점_json_응답에_영구적_2_input.png",
+    "result_path": "./captures\\ae23ab57_크로스_사이트_스크립팅_취약점_json_응답에_영구적_3_result.png",
+    "confirmed": false,
+    "failure_reason": "payload가 응답 본문에서 발견되지 않음 (필터링되었거나 오탐 가능성)",
+    "highlight_box": null
+  },
+  {
+    "job_id": "0947c411",
+    "before_path": "./captures\\0947c411_크로스_사이트_스크립팅_취약점_json_응답에_영구적_1_before.png",
+    "input_path": "./captures\\0947c411_크로스_사이트_스크립팅_취약점_json_응답에_영구적_2_input.png",
+    "result_path": "./captures\\0947c411_크로스_사이트_스크립팅_취약점_json_응답에_영구적_3_result.png",
+    "confirmed": false,
+    "failure_reason": "payload가 응답 본문에서 발견되지 않음 (필터링되었거나 오탐 가능성)",
+    "highlight_box": null
+  },
+  {
+    "job_id": "856881f5",
+    "before_path": "./captures\\856881f5_크로스_사이트_스크립팅_취약점_json_응답에_영구적_1_before.png",
+    "input_path": "./captures\\856881f5_크로스_사이트_스크립팅_취약점_json_응답에_영구적_2_input.png",
+    "result_path": "./captures\\856881f5_크로스_사이트_스크립팅_취약점_json_응답에_영구적_3_result.png",
+    "confirmed": false,
+    "failure_reason": "payload가 응답 본문에서 발견되지 않음 (필터링되었거나 오탐 가능성)",
+    "highlight_box": null
+  }
+]

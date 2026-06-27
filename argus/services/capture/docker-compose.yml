@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  selenium-capture:
+    build: ./capture_pipeline
+    container_name: selenium-capture
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./captures:/app/captures
+      - ./zap_results:/app/zap_results
+    shm_size: '1gb'
+    mem_limit: 2.5g
+    cpus: 1.8
+    # docker compose up 시 --help 출력 (실제 실행은 docker compose run 사용)
+    # 예: docker compose run --rm selenium-capture /app/zap_results/sample.json --risk High Medium
+    command: ["--help"]

@@ -1,0 +1,54 @@
+{
+  "site": [
+    {
+      "@name": "http://192.168.73.128",
+      "alerts": [
+        {
+          "pluginid": "40012",
+          "alert": "Cross Site Scripting (Reflected)",
+          "riskdesc": "High (Medium)",
+          "confidence": "Medium",
+          "instances": [
+            {
+              "uri": "http://192.168.73.128/search?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+              "method": "GET",
+              "param": "q",
+              "attack": "<script>alert(1)</script>",
+              "evidence": "<script>alert(1)</script>"
+            }
+          ]
+        },
+        {
+          "pluginid": "40023",
+          "alert": "SQL Injection",
+          "riskdesc": "High (High)",
+          "confidence": "High",
+          "instances": [
+            {
+              "uri": "http://192.168.73.128/board/view?id=1' OR '1'='1",
+              "method": "GET",
+              "param": "id",
+              "attack": "1' OR '1'='1",
+              "evidence": "SQL syntax"
+            }
+          ]
+        },
+        {
+          "pluginid": "10044",
+          "alert": "Open Redirect",
+          "riskdesc": "Medium (Medium)",
+          "confidence": "Medium",
+          "instances": [
+            {
+              "uri": "http://192.168.73.128/login?next=http://evil.com",
+              "method": "GET",
+              "param": "next",
+              "attack": "http://evil.com",
+              "evidence": "http://evil.com"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
