@@ -429,6 +429,242 @@ class SeleniumCaptureEngine:
 
 
 
+    def _inject_burp_repeater_ui(self, step: int, job: CaptureJob, status: int = 500, response_body: str = ""):
+        # 먼저 mock URL 바를 주입하여 두 화면이 공존할 수 있도록 함
+        response_type = "json" if job.response_type_hint == "json" else "html"
+        self._inject_mock_url_bar(step, job.target_url, response_type, response_body)
+
+        parsed = urlparse(job.target_url)
+        path = parsed.path
+        if parsed.query:
+            path += f"?{parsed.query}"
+        
+        req_headers = f"{job.method} {path} HTTP/1.1\n"
+        req_headers += f"Host: {parsed.netloc}\n"
+        req_headers += "Accept: application/json, text/plain, */*\n"
+        req_headers += "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0\n"
+        if self.auth_headers:
+            for k, v in self.auth_headers.items():
+                req_headers += f"{k}: {v}\n"
+        
+        req_body = ""
+        if job.method in ("POST", "PUT", "PATCH") and job.param and job.attack:
+            import json
+            req_headers += "Content-Type: application/json\n"
+            req_body = json.dumps({job.param: job.attack}, indent=2)
+        
+        res_headers = f"HTTP/1.1 {status}\n"
+        res_headers += "Content-Type: application/json;charset=UTF-8\n"
+        res_headers += "Connection: close\n"
+        res_headers += "Cache-Control: no-cache, no-store, must-revalidate\n"
+        
+        script = """
+        const existingPanel = document.getElementById('burp-repeater-panel');
+        if (existingPanel) { existingPanel.remove(); }
+
+        let pageWrapper = document.getElementById('page-wrapper');
+        if (!pageWrapper) {
+            pageWrapper = document.createElement('div');
+            pageWrapper.id = 'page-wrapper';
+            pageWrapper.style.height = '50vh';
+            pageWrapper.style.overflow = 'auto';
+            pageWrapper.style.position = 'relative';
+            pageWrapper.style.boxSizing = 'border-box';
+            pageWrapper.style.borderBottom = '4px solid #ff6600';
+
+            const children = Array.from(document.body.children);
+            children.forEach(child => {
+                if (child.id !== 'mock-chrome-frame' && child.id !== 'page-wrapper') {
+                    pageWrapper.appendChild(child);
+                }
+            });
+            document.body.appendChild(pageWrapper);
+        }
+
+        // mock-chrome-frame이 fixed 포지션이 아니라 flex 레이아웃에 참여하도록 스타일 조정
+        const mockFrame = document.getElementById('mock-chrome-frame');
+        if (mockFrame) {
+            mockFrame.style.position = 'relative';
+            mockFrame.style.top = 'auto';
+            mockFrame.style.left = 'auto';
+            mockFrame.style.right = 'auto';
+            mockFrame.style.width = '100%';
+            if (document.body.firstChild !== mockFrame) {
+                document.body.insertBefore(mockFrame, document.body.firstChild);
+            }
+        }
+
+        document.body.style.margin = '0';
+        document.body.style.padding = '0';
+        document.body.style.paddingTop = '0'; // mock URL 바 때문에 들어갔던 바디 패딩 제거
+        document.body.style.height = '100vh';
+        document.body.style.display = 'flex';
+        document.body.style.flexDirection = 'column';
+        document.body.style.overflow = 'hidden';
+
+        pageWrapper.style.flex = '1';
+
+        const panel = document.createElement('div');
+        panel.id = 'burp-repeater-panel';
+        panel.style.height = '42vh';
+        panel.style.backgroundColor = '#151515';
+        panel.style.color = '#e0e0e0';
+        panel.style.fontFamily = 'Consolas, Monaco, monospace';
+        panel.style.fontSize = '11px';
+        panel.style.display = 'flex';
+        panel.style.flexDirection = 'column';
+        panel.style.boxSizing = 'border-box';
+        panel.style.zIndex = '2147483640';
+
+        const topMenu = document.createElement('div');
+        topMenu.style.height = '24px';
+        topMenu.style.backgroundColor = '#2c2c2c';
+        topMenu.style.borderBottom = '1px solid #3c3c3c';
+        topMenu.style.display = 'flex';
+        topMenu.style.alignItems = 'center';
+        topMenu.style.padding = '0 10px';
+        topMenu.style.gap = '15px';
+        topMenu.style.fontWeight = 'bold';
+        topMenu.style.color = '#a0a0a0';
+
+        const logo = document.createElement('span');
+        logo.innerText = 'Burp Suite Professional';
+        logo.style.color = '#ff6600';
+        logo.style.marginRight = '20px';
+        topMenu.appendChild(logo);
+
+        const tabs = ['Target', 'Proxy', 'Intruder', 'Repeater', 'Collaborator'];
+        tabs.forEach(t => {
+            const span = document.createElement('span');
+            span.innerText = t;
+            if (t === 'Repeater') {
+                span.style.color = '#ffffff';
+                span.style.borderBottom = '2px solid #ff6600';
+            }
+            topMenu.appendChild(span);
+        });
+        panel.appendChild(topMenu);
+
+        const repBar = document.createElement('div');
+        repBar.style.height = '28px';
+        repBar.style.backgroundColor = '#202020';
+        repBar.style.borderBottom = '1px solid #3c3c3c';
+        repBar.style.display = 'flex';
+        repBar.style.alignItems = 'center';
+        repBar.style.padding = '0 10px';
+        repBar.style.gap = '10px';
+
+        const sendBtn = document.createElement('button');
+        sendBtn.innerText = 'Send';
+        sendBtn.style.backgroundColor = '#ff6600';
+        sendBtn.style.color = '#ffffff';
+        sendBtn.style.border = 'none';
+        sendBtn.style.borderRadius = '3px';
+        sendBtn.style.padding = '2px 8px';
+        sendBtn.style.fontWeight = 'bold';
+        
+        const urlLabel = document.createElement('span');
+        urlLabel.innerHTML = `Target: <span style="color: #ffaa66; font-weight: bold;">${arguments[0]}</span>`;
+
+        repBar.appendChild(sendBtn);
+        repBar.appendChild(urlLabel);
+        panel.appendChild(repBar);
+
+        const contentArea = document.createElement('div');
+        contentArea.style.flex = '1';
+        contentArea.style.display = 'flex';
+        contentArea.style.overflow = 'hidden';
+
+        const leftPane = document.createElement('div');
+        leftPane.style.flex = '1';
+        leftPane.style.borderRight = '1px solid #3c3c3c';
+        leftPane.style.display = 'flex';
+        leftPane.style.flexDirection = 'column';
+
+        const leftHeader = document.createElement('div');
+        leftHeader.innerText = 'Request';
+        leftHeader.style.padding = '4px 8px';
+        leftHeader.style.backgroundColor = '#2a2a2a';
+        leftHeader.style.borderBottom = '1px solid #3c3c3c';
+        leftHeader.style.fontWeight = 'bold';
+        leftHeader.style.color = '#ff6600';
+
+        const leftContent = document.createElement('pre');
+        leftContent.style.margin = '0';
+        leftContent.style.padding = '8px';
+        leftContent.style.overflow = 'auto';
+        leftContent.style.flex = '1';
+        leftContent.style.whiteSpace = 'pre-wrap';
+        leftContent.style.wordBreak = 'break-all';
+        leftContent.style.color = '#c0c0c0';
+
+        const attack = arguments[4];
+        let reqText = arguments[1] + (arguments[2] ? '\\n' + arguments[2] : '');
+        if (attack && reqText.includes(attack)) {
+            const escText = reqText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            const escAttack = attack.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            leftContent.innerHTML = escText.replace(escAttack, `<span style="background-color: #ff6600; color: #ffffff; padding: 1px 3px; border-radius: 2px; font-weight: bold;">${escAttack}</span>`);
+        } else {
+            leftContent.innerText = reqText;
+        }
+
+        leftPane.appendChild(leftHeader);
+        leftPane.appendChild(leftContent);
+        contentArea.appendChild(leftPane);
+
+        const rightPane = document.createElement('div');
+        rightPane.style.flex = '1';
+        rightPane.style.display = 'flex';
+        rightPane.style.flexDirection = 'column';
+
+        const rightHeader = document.createElement('div');
+        rightHeader.innerText = 'Response';
+        rightHeader.style.padding = '4px 8px';
+        rightHeader.style.backgroundColor = '#2a2a2a';
+        rightHeader.style.borderBottom = '1px solid #3c3c3c';
+        rightHeader.style.fontWeight = 'bold';
+        rightHeader.style.color = '#00cc66';
+
+        const rightContent = document.createElement('pre');
+        rightContent.style.margin = '0';
+        rightContent.style.padding = '8px';
+        rightContent.style.overflow = 'auto';
+        rightContent.style.flex = '1';
+        rightContent.style.whiteSpace = 'pre-wrap';
+        rightContent.style.wordBreak = 'break-all';
+        rightContent.style.color = '#c0c0c0';
+
+        if (arguments[5] === 2) {
+            rightContent.innerText = '(Waiting for response...)';
+            rightContent.style.color = '#555555';
+        } else {
+            const resText = arguments[6] + '\\n\\n' + arguments[7];
+            rightContent.innerText = resText;
+        }
+
+        rightPane.appendChild(rightHeader);
+        rightPane.appendChild(rightContent);
+        contentArea.appendChild(rightPane);
+
+        panel.appendChild(contentArea);
+        document.body.appendChild(panel);
+        """
+        try:
+            self.driver.execute_script(
+                script,
+                job.target_url,
+                req_headers,
+                req_body,
+                job.param or "",
+                job.attack or "",
+                step,
+                res_headers,
+                response_body
+            )
+            time.sleep(0.1)
+        except Exception as e:
+            logger.warning("Burp Repeater UI injection failed: %s", e)
+
     def initialize_auth(self, sample_url: str):
         if not self.auth_cookies:
             return
@@ -494,9 +730,11 @@ class SeleniumCaptureEngine:
         if not alert_slug:
             alert_slug = job.alert_category
         path = os.path.join(self.output_dir, f"{job.job_id}_{alert_slug}_1_before.png")
-        self._inject_mock_url_bar(
+        self._inject_burp_repeater_ui(
             step=1,
-            url=frontend_url
+            job=job,
+            status=result.get("status", 200),
+            response_body=result.get("body", "")
         )
         self.driver.save_screenshot(path)
         logger.info("[%s] STEP1 공격 전 캡처 완료 (배경: %s, API: %s) → %s", 
@@ -530,9 +768,11 @@ class SeleniumCaptureEngine:
             logger.info("[%s] 프론트엔드 입력 필드를 찾지 못해 백그라운드 fetch로 API 공격을 재현합니다.", job.job_id)
             fetch_result = self._fetch_via_js(job.target_url, job.method, job.request_body)
 
-        self._inject_mock_url_bar(
+        self._inject_burp_repeater_ui(
             step=2,
-            url=job.target_url
+            job=job,
+            status=0,
+            response_body=""
         )
         alert_slug = re.sub(r'[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ]', '_', job.alert_type).lower()
         alert_slug = re.sub(r'_+', '_', alert_slug).strip('_')
@@ -687,21 +927,22 @@ class SeleniumCaptureEngine:
             except Exception:
                 pass
 
+        status_code = fetch_result.get("status", 500) if fetch_result else 500
         try:
-            self._inject_mock_url_bar(
+            self._inject_burp_repeater_ui(
                 step=3,
-                url=job.target_url,
-                response_type=response_type,
-                body_text=body_text
+                job=job,
+                status=status_code,
+                response_body=body_text
             )
             self.driver.save_screenshot(path)
         except WebDriverException:
             self._try_dismiss_alert()
-            self._inject_mock_url_bar(
+            self._inject_burp_repeater_ui(
                 step=3,
-                url=job.target_url,
-                response_type=response_type,
-                body_text=body_text
+                job=job,
+                status=status_code,
+                response_body=body_text
             )
             self.driver.save_screenshot(path)
 
