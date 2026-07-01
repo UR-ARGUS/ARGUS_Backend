@@ -1,0 +1,4 @@
+[ZoneTransfer]
+ZoneId=3
+ReferrerUrl=https://claude.ai/chat/da3c8a68-82d3-45eb-807e-e59eb30cc604
+HostUrl=https://claude.ai/api/organizations/0ca2b6cf-779b-4ab5-9d91-2e150558ff39/conversations/da3c8a68-82d3-45eb-807e-e59eb30cc604/wiggle/download-file?path=%2Fmnt%2Fuser-data%2Foutputs%2Fparam_injection_diagnosis.md
