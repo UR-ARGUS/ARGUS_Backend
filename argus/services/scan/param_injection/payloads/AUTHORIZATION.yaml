@@ -14,6 +14,13 @@ field_name_patterns:
   - "authority"
   - "access"
 
+# "^is_"/"_flag$"는 스네이크케이스만 잡는다 - "isAdmin"/"adminFlag" 같은 camelCase는
+# 원본 대소문자 그대로(대소문자 구분) 매칭해야 잡힌다. IDOR.yaml의 field_name_patterns_cased와
+# 동일한 이유/원리.
+field_name_patterns_cased:
+  - "^is[A-Z]"
+  - "[a-z0-9]Flag$"
+
 payloads:
   - "ADMIN"
   - "SUPER_ADMIN"

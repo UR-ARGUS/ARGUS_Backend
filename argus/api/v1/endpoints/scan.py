@@ -21,6 +21,13 @@ class ScanRequestSchema(BaseModel):
     target_url: HttpUrl = Field(..., description="진단 대상 URL (http/https 절대 URL)")
     login_config: Optional[LoginConfigSchema] = Field(None, description="자동 로그인 설정")
     custom_header: Optional[str] = Field(None, description="직접 주입할 쿠키/헤더 값 (예: Cookie: session=123)")
+    api_base_url: Optional[HttpUrl] = Field(
+        None,
+        description="백엔드 API 서버 URL (예: http://localhost:8080). target_url이 프론트엔드 SPA일 때 "
+                    "이 값을 함께 주면 해당 origin에서 OpenAPI/Swagger 스펙을 가져와 실제 API 파라미터 "
+                    "기준으로 진단한다. SPA 크롤링만으로는 결제금액/권한/ID/상태값 같은 실제 비즈니스 "
+                    "파라미터를 거의 발견할 수 없기 때문."
+    )
 
 @router.post("/")
 def trigger_scan(payload: ScanRequestSchema):
@@ -28,7 +35,8 @@ def trigger_scan(payload: ScanRequestSchema):
     task = run_scan_task.delay(
         target_url=str(payload.target_url),
         login_config=payload.login_config.model_dump() if payload.login_config else None,
-        custom_header=payload.custom_header
+        custom_header=payload.custom_header,
+        api_base_url=str(payload.api_base_url) if payload.api_base_url else None
     )
     return {"message": "Scan triggered successfully", "task_id": task.id}
 

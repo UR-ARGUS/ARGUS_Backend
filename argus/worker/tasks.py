@@ -1,7 +1,6 @@
 from argus.core.celery_app import celery_app
 from argus.core.config import settings
 from argus.services.scan.zap import ZapScanner
-<<<<<<< HEAD
 import json
 import logging
 import os
@@ -17,29 +16,16 @@ def save_scan_result_json(task_id: str, alerts: list) -> str:
     return path
 
 @celery_app.task(bind=True)
-def run_scan_task(self, target_url: str, login_config: dict = None, custom_header: str = None):
-=======
-import logging
-
-logger = logging.getLogger("argus.tasks")
-
-@celery_app.task
-def run_scan_task(target_url: str, login_config: dict = None):
->>>>>>> 52731deea290892724ee66faf3b33c0139f53dad
+def run_scan_task(self, target_url: str, login_config: dict = None, custom_header: str = None, api_base_url: str = None):
     logger.info(f"ZAP 스캔 작업 시작: {target_url}")
     try:
         scanner = ZapScanner(zap_api_url=settings.ZAP_API_URL, api_key=settings.ZAP_API_KEY or None)
         scanner.setup_parameter_tampering_policy()
-<<<<<<< HEAD
 
-=======
-        
->>>>>>> 52731deea290892724ee66faf3b33c0139f53dad
         context_id = None
         if login_config:
             logger.info("자동 로그인 정보가 제공되어 ZAP 인증을 설정합니다.")
             context_id = scanner.setup_authentication(target_url, login_config)
-<<<<<<< HEAD
 
         # ZAP API에 헤더/쿠키 주입 설정 적용.
         # custom_header가 없는 스캔이어도 항상 호출해야 한다 — Replacer 규칙은 ZAP 인스턴스에
@@ -52,16 +38,10 @@ def run_scan_task(target_url: str, login_config: dict = None):
         def report_progress(phase: str, percent: int):
             self.update_state(state="PROGRESS", meta={"phase": phase, "percent": percent})
 
-        results = scanner.run_scan(target_url, context_id=context_id, progress_callback=report_progress)
+        results = scanner.run_scan(target_url, context_id=context_id, progress_callback=report_progress, api_base_url=api_base_url)
         result_json_path = save_scan_result_json(self.request.id, results.get("parameter_tampering_alerts", []))
         logger.info(f"ZAP 스캔 작업 완료. 발견된 취약점 개수: {results.get('total_alerts', 0)} (결과 JSON: {result_json_path})")
         return {"status": "completed", "target": target_url, "results": results, "result_json_path": result_json_path}
-=======
-            
-        results = scanner.run_scan(target_url, context_id=context_id)
-        logger.info(f"ZAP 스캔 작업 완료. 발견된 취약점 개수: {results.get('total_alerts', 0)}")
-        return {"status": "completed", "target": target_url, "results": results}
->>>>>>> 52731deea290892724ee66faf3b33c0139f53dad
     except Exception as e:
         logger.error(f"ZAP 스캔 작업 실패: {e}")
         return {"status": "failed", "error": str(e), "target": target_url}

@@ -47,15 +47,17 @@ class ZapScanner:
         self.zap = ZAPv2(proxies={"http": zap_api_url, "https": zap_api_url}, apikey=api_key)
         self.policy_name = "ParameterTamperingPolicy"
 
-    def try_import_openapi_spec(self, target_url: str) -> bool:
+    def try_import_openapi_spec(self, origin_url: str) -> bool:
         """
-        대표 URL의 origin(scheme+host+port)에서 흔히 쓰이는 OpenAPI/Swagger 스펙 경로를
+        origin_url의 origin(scheme+host+port)에서 흔히 쓰이는 OpenAPI/Swagger 스펙 경로를
         순서대로 시도해, 발견되면 ZAP에 통째로 import한다.
         REST API는 크롤링으로 발견할 링크/폼이 없어 Spider/AJAX Spider가 무력하므로,
         스펙만 있으면 대표 URL 하나로도 모든 엔드포인트/파라미터를 범용적으로 알아낼 수 있다.
+        target_url(프론트엔드 SPA)뿐 아니라 별도의 백엔드 API origin(api_base_url)에도 그대로
+        재사용한다 - SPA origin엔 스펙이 없고 실제 API 서버에만 있는 경우가 흔하기 때문.
         성공 시 True, 스펙을 찾지 못하면 False (호출자는 기존 크롤링 방식으로 계속 진행).
         """
-        parsed = urlparse(target_url)
+        parsed = urlparse(origin_url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
 
         for path in _OPENAPI_SPEC_PATHS:
@@ -276,11 +278,14 @@ class ZapScanner:
             logger.error(f"ZAP 인증 설정 중 오류 발생: {e}")
             raise
 
-    def run_scan(self, target_url: str, context_id: str = None, progress_callback=None) -> dict:
+    def run_scan(self, target_url: str, context_id: str = None, progress_callback=None, api_base_url: str = None) -> dict:
         """
         ZAP Active Scan을 수행하고 결과를 반환합니다.
         progress_callback(phase: str, percent: int)이 주어지면 spider/active scan
         진행률이 바뀔 때마다 호출되어, 실제 ZAP 진행 속도를 호출자(Celery task)에 보고할 수 있습니다.
+        api_base_url이 주어지면 target_url(프론트엔드 SPA)뿐 아니라 그 origin에서도 OpenAPI 스펙을
+        찾는다 - SPA를 크롤링해서는 백엔드 API의 실제 파라미터(결제금액/권한/ID/상태값 등)를 거의
+        발견할 수 없으므로, 의미 있는 진단을 하려면 API 서버의 스펙을 직접 가져와야 한다.
         """
         try:
             # 0. OpenAPI/Swagger 스펙 자동 탐지 — 있으면 대표 URL 하나로 모든 엔드포인트/
@@ -288,6 +293,8 @@ class ZapScanner:
             if progress_callback:
                 progress_callback("openapi_discovery", 0)
             self.try_import_openapi_spec(target_url)
+            if api_base_url:
+                self.try_import_openapi_spec(api_base_url)
             if progress_callback:
                 progress_callback("openapi_discovery", 100)
 
@@ -375,6 +382,40 @@ class ZapScanner:
             if progress_callback:
                 progress_callback("ascan", 100)
             logger.info("Active Scan 완료.")
+
+            # 2-1. 백엔드 API Active Scan — api_base_url이 주어졌다면 별도로 스캔한다.
+            # target_url(프론트엔드)과 api_base_url(백엔드)은 ZAP Sites 트리에서 서로 다른
+            # site 노드이므로, 위의 Active Scan(target_url 기준 recurse)만으로는 OpenAPI
+            # 스펙으로 import된 API 엔드포인트까지 도달하지 못한다 - 그래서 반드시 별도 호출이 필요하다.
+            if api_base_url:
+                logger.info(f"Active Scan 시작 (백엔드 API): {api_base_url}")
+                if context_id:
+                    users = self.zap.users.users_list(context_id)
+                    user_id = users[0]["id"] if users else None
+                    api_scan_id = self.zap.ascan.scan_as_user(
+                        url=api_base_url,
+                        contextid=context_id,
+                        userid=user_id,
+                        recurse="true",
+                        scanpolicyname=self.policy_name
+                    )
+                else:
+                    api_scan_id = self.zap.ascan.scan(
+                        url=api_base_url,
+                        recurse="true",
+                        scanpolicyname=self.policy_name
+                    )
+
+                api_ascan_pct = int(self.zap.ascan.status(api_scan_id))
+                while api_ascan_pct < 100:
+                    logger.info(f"Active Scan 진행률 (백엔드 API): {api_ascan_pct}%")
+                    if progress_callback:
+                        progress_callback("ascan_api", api_ascan_pct)
+                    time.sleep(5)
+                    api_ascan_pct = int(self.zap.ascan.status(api_scan_id))
+                if progress_callback:
+                    progress_callback("ascan_api", 100)
+                logger.info("Active Scan 완료 (백엔드 API).")
 
             # 3. 결과 수집
             unique_alerts = {}

@@ -17,6 +17,15 @@ field_name_patterns:
   - "sellerid"
   - "targetid"
 
+# camelCase 필드명(userId, productId 등)은 위 소문자 패턴(대소문자 무시 매칭)으로는
+# 잡히지 않는다 - "(^|_)id$"는 언더스코어 없는 "productId"에서 "Id" 앞에 "_"나
+# 문자열 시작이 없어서 매칭에 실패한다. 아래 패턴은 원본 대소문자 그대로(대소문자 구분)
+# 매칭해서 "소문자+대문자I" camelCase 경계를 잡아낸다.
+field_name_patterns_cased:
+  - "[a-z0-9]Id$"
+  - "[a-z0-9]Uid$"
+  - "[a-z0-9]No$"
+
 payloads:
   - "{original_value - 1}"
   - "{original_value + 1}"

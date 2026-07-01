@@ -27,12 +27,24 @@
  * 별도 검증(수동/AI/Selenium replay)이 필요하다.
  *
  * 주의(중요): 실제 금액 조작/권한 상승은 대부분 "정상적인 성공 응답(2xx)"으로 조용히 처리된다.
- * status flip/서버 에러/길이 급변/반사 같은 구조적 신호는 전부 "명확하게 달라진 경우"만 잡기 때문에,
+ * status flip/서버 에러/반사 같은 구조적 신호는 전부 "명확하게 달라진 경우"만 잡기 때문에,
  * 변조가 조용히 받아들여진 성공 케이스(가장 위험한 케이스)는 구조적 신호만으로는 놓칠 수 있다.
  * 이를 보완하기 위해 4개 카테고리에 해당하는 "민감" 후보에 대해서는, 구조적 신호가 하나도
  * 없어도 서버가 명시적으로 거부하지 않았다면 "수동 확인이 필요한 후보"로 낮은 confidence의
  * 별도 알림을 추가로 남긴다(evaluateDiff의 silent 플래그). 이 신호는 실제 취약점 여부를 판단하지
  * 않고 "자동으로는 판단할 수 없으니 사람이 응답 내용을 직접 대조하라"는 의미다.
+ *
+ * 판단 로직(argus/services/scan/param_injection/payload_injector.py의 SSRF 이상치 탐지
+ * 방식을 이식): 파라미터 하나에 넣어볼 후보값들을 전부 먼저 보낸 뒤, 개별 후보를 baseline과만
+ * 1:1로 비교하지 않고 "같은 파라미터의 다른 후보들"과도 함께 비교한다.
+ *   1) 균일 응답(uniform response) 억제 - 후보값이 서로 다른데도 (상태코드, 응답 길이)가
+ *      거의 똑같은 그룹이 전체의 70% 이상이면, 이 파라미터는 "무엇을 넣어도 동일하게 처리"되는
+ *      것(예: 공통 검증/에러 핸들러)이므로 그 그룹에 속한 결과는 신호로 보지 않는다.
+ *      (기존 "baseline 대비 20% 이상 길이 변화" 같은 고정 임계값은 baseline과 다르기만 하면
+ *      전부 신호가 되어 버려서, "제대로 거부된 정상 케이스"까지 오탐으로 잡는 문제가 있었다.)
+ *   2) 통계적 길이 이상치 - 균일 그룹에 속하지 않는 후보 중, 같은 파라미터의 다른 후보들
+ *      대비 중앙값/중앙절대편차(MAD, payload_injector.py의 median_deviation과 동일 개념)로
+ *      실제 이상치인지 판단하고, baseline과도 유의미하게 달라야만 신호로 취급한다.
  */
 
 // param_injection_diagnosis.md의 injector.py가 diff에 함께 담아 Claude에 넘기던 키워드 목록.
@@ -62,6 +74,14 @@ var FALLBACK_PATTERNS = {
     AUTHORIZATION: /role|admin|perm|level|^is_|_flag$/i,
     IDOR: /(^|_)(id|uid|no)$|user|account|mdn|phone|tel|hp(_|$)/i,
     LOGIC_FLOW: /status|state|type|flag|step|phase|stage|mode/i
+};
+
+// "^is_"/"_flag$"/"(^|_)id$"는 스네이크케이스만 잡는다. "productId"/"isAdmin" 같은
+// camelCase는 소문자로 내리면 카멜케이스 경계(소문자->대문자 전환)가 사라져 못 잡히므로,
+// 이 패턴들만 원본 대소문자 그대로(대소문자 구분, "i" 플래그 없음) 별도로 검사한다.
+var FALLBACK_PATTERNS_CASED = {
+    AUTHORIZATION: /^is[A-Z]|[a-z0-9]Flag$/,
+    IDOR: /[a-z0-9](Id|Uid|No)$/
 };
 
 // zap.py의 _load_custom_diff_script()가 스크립트를 로드하기 직전에 이 플레이스홀더를
@@ -109,6 +129,17 @@ var CATEGORY_CONFIG = (function loadCategoryConfig() {
                 }
             }
 
+            // field_name_patterns_cased: "productId"/"isAdmin" 같은 camelCase 경계는
+            // 대소문자를 구분해서 원본 그대로 검사해야만 잡힌다("i" 플래그 없음).
+            var casedPatterns = [];
+            var rawCasedPatterns = data.get("field_name_patterns_cased");
+            if (rawCasedPatterns) {
+                var casedPatternIt = rawCasedPatterns.iterator();
+                while (casedPatternIt.hasNext()) {
+                    casedPatterns.push(String(casedPatternIt.next()));
+                }
+            }
+
             var payloads = [];
             var rawPayloads = data.get("payloads");
             if (rawPayloads) {
@@ -120,6 +151,7 @@ var CATEGORY_CONFIG = (function loadCategoryConfig() {
 
             config[category] = {
                 pattern: patterns.length > 0 ? new RegExp("(" + patterns.join("|") + ")", "i") : null,
+                casedPattern: casedPatterns.length > 0 ? new RegExp("(" + casedPatterns.join("|") + ")") : null,
                 payloads: payloads
             };
         }
@@ -131,10 +163,14 @@ var CATEGORY_CONFIG = (function loadCategoryConfig() {
 })();
 
 function paramMatchesCategory(category, param) {
-    if (CATEGORY_CONFIG && CATEGORY_CONFIG[category] && CATEGORY_CONFIG[category].pattern) {
-        return CATEGORY_CONFIG[category].pattern.test(param);
+    if (CATEGORY_CONFIG && CATEGORY_CONFIG[category]) {
+        var conf = CATEGORY_CONFIG[category];
+        if (conf.pattern && conf.pattern.test(param)) return true;
+        if (conf.casedPattern && conf.casedPattern.test(param)) return true;
+        return false;
     }
-    return FALLBACK_PATTERNS[category].test(param);
+    var casedFallback = FALLBACK_PATTERNS_CASED[category];
+    return FALLBACK_PATTERNS[category].test(param) || (casedFallback ? casedFallback.test(param) : false);
 }
 
 function formatNumber(n) {
@@ -191,7 +227,7 @@ function buildCandidates(param, value) {
         for (var category in CATEGORY_CONFIG) {
             if (!CATEGORY_CONFIG.hasOwnProperty(category)) continue;
             var conf = CATEGORY_CONFIG[category];
-            if (!conf.pattern || !conf.pattern.test(param)) continue;
+            if (!paramMatchesCategory(category, param)) continue;
 
             for (var p = 0; p < conf.payloads.length; p++) {
                 var rawPayload = conf.payloads[p];
@@ -263,12 +299,27 @@ function buildCandidates(param, value) {
     return candidates;
 }
 
-function evaluateDiff(baseStatus, baseBody, candMsg, candidateValue, candidate) {
+function median(nums) {
+    if (nums.length === 0) return 0;
+    var sorted = nums.slice().sort(function (a, b) { return a - b; });
+    var mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// stats: {peerMedianLen, anomalyThreshold, suppressedByUniform} - scan()이 같은 파라미터의
+// 후보 묶음 전체를 보고 계산해서 넘겨준다. 개별 후보 하나만 보고는 "이상치"인지 판단할 수 없다.
+function evaluateDiff(baseStatus, baseBody, candMsg, candidateValue, candidate, stats) {
     var status = candMsg.getResponseHeader().getStatusCode();
     var body = candMsg.getResponseBody().toString();
     var baseLen = baseBody.length;
     var len = body.length;
     var signals = [];
+
+    // 서버가 4xx(명시적 거부)/5xx로 응답했는지 - 아래 범용 신호에서 재사용한다. 정상 검증
+    // 실패 응답(예: "입력값이 유효하지 않습니다")은 baseline(정상 성공 응답)보다 당연히
+    // 훨씬 짧으므로, 이 케이스까지 구조적 신호로 잡으면 "서버가 제대로 막았다"는 결과가
+    // 오히려 "의심 후보"로 보고되는 오탐이 된다.
+    var explicitlyRejected = (status === 400 || status === 401 || status === 403 || status === 404 || status === 422 || status >= 500);
 
     // 인증/인가 실패 -> 성공으로 반전 (권한 우회 의심, 가장 위험도 높음)
     var wasDenied = (baseStatus === 401 || baseStatus === 403);
@@ -281,10 +332,16 @@ function evaluateDiff(baseStatus, baseBody, candMsg, candidateValue, candidate) 
     }
 
     // 정상 -> 서버 오류 반전 (입력 검증 미흡 의심)
+    // sensitive 후보로 한정한다 - 이 신호가 sensitive 여부를 안 가릴 때 재검증해보니, 실제로
+    // 뜬 알림 전부가 "productId[]"/"null"/"999999999" 같은 카테고리 무관 타입 프로브에서
+    // 나온 것으로 확인됐다(진짜 FINANCIAL/AUTHORIZATION/IDOR/LOGIC_FLOW 값 조작이 아님).
+    // 게다가 500 자체는 SK Shieldus 6-1(오류 처리) 항목 소관이지 1-3(파라미터 조작)이 아니므로,
+    // 최소한 "민감 카테고리 값으로 조작했더니 서버가 뻗었다"는 경우로 한정해야 1-3 리포트의
+    // 스코프에 맞다.
     var wasOk = (baseStatus >= 200 && baseStatus < 300);
     var nowOk = (status >= 200 && status < 300) || status === 302;
     var nowError = (status >= 500);
-    if (wasOk && nowError) {
+    if (wasOk && nowError && candidate && candidate.sensitive) {
         signals.push({
             risk: 2, confidence: 2,
             reason: "정상 응답이 변조 후 서버 오류(" + status + ")로 바뀜 - 입력 검증 미흡 가능성"
@@ -316,19 +373,32 @@ function evaluateDiff(baseStatus, baseBody, candMsg, candidateValue, candidate) 
         }
     }
 
-    // 응답 길이 급변 (20% 이상)
-    if (baseLen > 0) {
-        var delta = Math.abs(len - baseLen) / baseLen;
-        if (delta >= 0.2) {
+    // 균일 응답 그룹(=이 파라미터는 뭘 넣어도 동일하게 처리됨)에 속한 후보는 아래 두 범용
+    // 신호(길이 이상치/반사값)를 평가하지 않는다 - 파라미터 값과 무관한 공통 동작이라는 뜻이므로.
+    var suppressed = stats && stats.suppressedByUniform;
+
+    // 응답 길이 통계적 이상치 - 같은 파라미터의 다른 후보들(peer) 대비 중앙값/MAD 기반 임계값을
+    // 벗어나고, baseline과도 유의미하게 달라야 신호로 본다("baseline과 20% 다르면 무조건 신호"
+    // 였던 이전 방식은 정상 거부 응답까지 오탐으로 잡았다).
+    // sensitive 후보(FINANCIAL/AUTHORIZATION/IDOR/LOGIC_FLOW 값)로 한정한다 - 카테고리 무관
+    // 범용 프로브(예: page/size/location 같은 검색 필터에 "[]"/null을 넣는 타입 혼동 체크)는
+    // 필터 값이 달라지면 검색 결과 길이가 달라지는 게 정상 동작이라, 이 신호를 그대로 적용하면
+    // 실제 취약점과 무관한 GENERIC 알림이 대량으로 쏟아진다(오탐 폭주 확인됨).
+    if (!explicitlyRejected && !suppressed && candidate && candidate.sensitive && stats && stats.peerMedianLen > 0) {
+        var deviationFromPeers = Math.abs(len - stats.peerMedianLen);
+        var deviationFromBase = Math.abs(len - baseLen);
+        if (deviationFromPeers >= stats.anomalyThreshold && deviationFromBase >= stats.anomalyThreshold) {
             signals.push({
                 risk: 1, confidence: 1,
-                reason: "응답 길이가 " + Math.round(delta * 100) + "% 변화함 (base=" + baseLen + ", now=" + len + ")"
+                reason: "응답 길이(" + len + "자)가 같은 파라미터의 다른 후보들(중앙값 " + Math.round(stats.peerMedianLen) +
+                    "자) 및 baseline(" + baseLen + "자) 대비 통계적 이상치 (임계값 ±" + Math.round(stats.anomalyThreshold) + "자)"
             });
         }
     }
 
-    // 변조값이 그대로 응답에 반사되면서 응답 자체도 달라짐
-    if (candidateValue.length > 0 && body.indexOf(candidateValue) >= 0 && baseLen !== len) {
+    // 변조값이 그대로 응답에 반사되면서 응답 자체도 달라짐 (마찬가지로 명시적 거부/균일 그룹 시 제외,
+    // 위와 같은 이유로 sensitive 후보로 한정)
+    if (!explicitlyRejected && !suppressed && candidate && candidate.sensitive && candidateValue.length > 0 && body.indexOf(candidateValue) >= 0 && baseLen !== len) {
         signals.push({
             risk: 1, confidence: 1,
             reason: "변조한 값(" + candidateValue + ")이 응답에 그대로 반영됨"
@@ -337,11 +407,11 @@ function evaluateDiff(baseStatus, baseBody, candMsg, candidateValue, candidate) 
 
     // 조용한 성공(silent success) - 위의 구조적 신호가 하나도 안 걸렸어도,
     // 이 후보가 FINANCIAL/AUTHORIZATION/IDOR/LOGIC_FLOW 중 하나를 노린 "민감" 값이고 서버가
-    // 명시적으로 거부(4xx)하거나 에러를 낸 게 아니라면(=응답 구조는 baseline과 비슷하지만 조작이
-    // 그냥 받아들여진 상태) 자동으로는 실제 금액/권한/상태가 바뀌었는지 판단할 수 없으므로
-    // 수동 확인 후보로 별도 보고한다. LOGIC_FLOW(상태값 변조)는 대부분 이 경로로만 잡힌다.
-    if (signals.length === 0 && candidate && candidate.sensitive) {
-        var explicitlyRejected = (status === 400 || status === 401 || status === 403 || status === 404 || status === 422 || status >= 500);
+    // 명시적으로 거부(4xx)하거나 에러를 낸 게 아니고 균일 응답 그룹도 아니라면(=응답 구조는
+    // baseline과 비슷하지만 조작이 그냥 받아들여진 상태) 자동으로는 실제 금액/권한/상태가
+    // 바뀌었는지 판단할 수 없으므로 수동 확인 후보로 별도 보고한다.
+    // LOGIC_FLOW(상태값 변조)는 대부분 이 경로로만 잡힌다.
+    if (signals.length === 0 && !suppressed && candidate && candidate.sensitive) {
         var stillSuccessLike = (status >= 200 && status < 400);
         if (!explicitlyRejected && stillSuccessLike) {
             signals.push({
@@ -380,38 +450,99 @@ function scan(as, msg, param, value) {
     // (그래도 파라미터당 요청 폭주는 방지해야 하므로 무제한으로 늘리지는 않음).
     var maxCandidates = 12;
 
+    // 1단계: 이 파라미터의 후보값을 전부 먼저 보내서 원시 결과(status/길이/본문)만 모은다.
+    // 판단(evaluateDiff)은 아직 하지 않는다 - 개별 후보 하나만 놓고는 "이상치"인지 알 수 없고,
+    // 같은 파라미터의 다른 후보들과 비교해야만 통계적으로 의미 있는 판단이 가능하다.
+    var outcomes = [];
     for (var i = 0; i < candidates.length && i < maxCandidates; i++) {
         if (as.isStop()) {
             return;
         }
-
         var candidate = candidates[i];
         var candidateValue = candidate.value;
         var testMsg = msg.cloneRequest();
         as.setParam(testMsg, param, candidateValue);
-
         try {
             as.sendAndReceive(testMsg, false, false);
         } catch (e) {
             continue;
         }
+        var outStatus = testMsg.getResponseHeader().getStatusCode();
+        var outLen = testMsg.getResponseBody().toString().length;
+        outcomes.push({
+            candidate: candidate,
+            candidateValue: candidateValue,
+            testMsg: testMsg,
+            status: outStatus,
+            len: outLen,
+            explicitlyRejected: (outStatus === 400 || outStatus === 401 || outStatus === 403 || outStatus === 404 || outStatus === 422 || outStatus >= 500)
+        });
+    }
+    if (outcomes.length === 0) {
+        return;
+    }
 
-        var signals = evaluateDiff(baseStatus, baseBody, testMsg, candidateValue, candidate);
+    // 2단계: 균일 응답(uniform response) 그룹 탐지 - (status, 길이±3자)가 같은 후보들을 묶어서
+    // 가장 큰 그룹이 전체의 70% 이상이면 "이 파라미터는 값과 무관하게 동일 처리된다"고 판단한다.
+    // payload_injector.py의 _apply_uniform_response_check(서로 다른 SSRF 페이로드가 균일한
+    // 응답을 반환하면 BASELINE_DIFF 판정을 취소하는 로직)와 동일한 목적이다.
+    var groups = [];
+    for (var oi = 0; oi < outcomes.length; oi++) {
+        var o = outcomes[oi];
+        var matchedGroup = null;
+        for (var gi = 0; gi < groups.length; gi++) {
+            var rep = groups[gi][0];
+            if (rep.status === o.status && Math.abs(rep.len - o.len) <= 3) {
+                matchedGroup = groups[gi];
+                break;
+            }
+        }
+        if (matchedGroup) {
+            matchedGroup.push(o);
+        } else {
+            groups.push([o]);
+        }
+    }
+    var largestGroup = groups.length > 0 ? groups.reduce(function (a, b) { return b.length > a.length ? b : a; }) : [];
+    var isUniform = outcomes.length >= 3 && (largestGroup.length / outcomes.length) >= 0.7;
+    var uniformStatus = isUniform ? largestGroup[0].status : null;
+    var uniformLen = isUniform ? largestGroup[0].len : null;
+
+    // 3단계: 통계 기반 이상치 임계값 계산 - 명시적으로 거부되지 않은 후보들의 응답 길이로
+    // 중앙값과 중앙절대편차(MAD)를 구한다. payload_injector.py의 anomaly_threshold =
+    // max(200, 3 * median_deviation)과 같은 개념이되, 우리 응답 본문은 훨씬 작은
+    // JSON 페이로드라 하한을 30자로 낮췄다.
+    var comparableLens = [];
+    for (var ci = 0; ci < outcomes.length; ci++) {
+        if (!outcomes[ci].explicitlyRejected) {
+            comparableLens.push(outcomes[ci].len);
+        }
+    }
+    var peerMedianLen = median(comparableLens);
+    var deviations = comparableLens.map(function (l) { return Math.abs(l - peerMedianLen); });
+    var anomalyThreshold = Math.max(30, 3 * median(deviations));
+
+    // 4단계: 후보별로 (균일 응답 여부 + 통계 임계값을 반영한) 판단을 내리고 알림을 올린다.
+    for (var k = 0; k < outcomes.length; k++) {
+        var out = outcomes[k];
+        var suppressedByUniform = isUniform && out.status === uniformStatus && Math.abs(out.len - uniformLen) <= 3;
+        var stats = { peerMedianLen: peerMedianLen, anomalyThreshold: anomalyThreshold, suppressedByUniform: suppressedByUniform };
+        var signals = evaluateDiff(baseStatus, baseBody, out.testMsg, out.candidateValue, out.candidate, stats);
         if (signals.length > 0) {
-            var responseBody = testMsg.getResponseBody().toString();
+            var responseBody = out.testMsg.getResponseBody().toString();
             var keywords = findKeywords(responseBody);
             var keywordNote = keywords.length > 0 ? (" 응답에서 발견된 키워드: [" + keywords.join(", ") + "].") : "";
 
             for (var j = 0; j < signals.length; j++) {
                 var sig = signals[j];
-                var category = sig.category || (candidate && candidate.kind) || "GENERIC";
+                var category = sig.category || (out.candidate && out.candidate.kind) || "GENERIC";
                 var description = sig.silent
-                    ? ("[" + category + "] 파라미터 '" + param + "'의 값을 '" + value + "' -> '" + candidateValue + "'로 변조: " + sig.reason +
+                    ? ("[" + category + "] 파라미터 '" + param + "'의 값을 '" + value + "' -> '" + out.candidateValue + "'로 변조: " + sig.reason +
                        ". 상태코드/응답길이/반사값 같은 구조적 신호는 없었지만, 이 파라미터는 금액/권한/ID/상태값 성격을 가진 것으로 " +
                        "보이고 변조된 값이 명시적으로 거부되지 않았습니다. 조작이 조용히 받아들여졌을 가능성이 있으므로, " +
                        "실제로 결제금액이 바뀌었는지/권한이 상승했는지/다른 사용자의 데이터가 노출됐는지/절차가 우회됐는지는 " +
                        "응답 내용을 직접 비교해 수동으로 확인하세요." + keywordNote)
-                    : ("[" + category + "] 파라미터 '" + param + "'의 값을 '" + value + "' -> '" + candidateValue +
+                    : ("[" + category + "] 파라미터 '" + param + "'의 값을 '" + value + "' -> '" + out.candidateValue +
                        "'로 변조했을 때 응답이 구조적으로 달라짐: " + sig.reason +
                        ". 서버가 이 파라미터 값을 충분히 검증하지 않거나 접근 제어를 파라미터 값에만 의존할 가능성을 시사합니다. " +
                        "단, 실제 비즈니스 영향(예: 실제로 가격/권한이 바뀌었는지)은 별도 확인이 필요합니다." + keywordNote);
@@ -421,17 +552,17 @@ function scan(as, msg, param, value) {
                     sig.confidence,
                     (sig.silent ? "Argus Parameter Tampering (Silent Success - Manual Review Needed) - " : "Argus Parameter Tampering - ") + category,
                     description,
-                    testMsg.getRequestHeader().getURI().toString(),
+                    out.testMsg.getRequestHeader().getURI().toString(),
                     param,
-                    candidateValue,
-                    "baseStatus=" + baseStatus + ", baseLen=" + baseBody.length + ", sk_shieldus_item=1-3",
+                    out.candidateValue,
+                    "baseStatus=" + baseStatus + ", baseLen=" + baseBody.length + ", peerMedianLen=" + Math.round(peerMedianLen) + ", sk_shieldus_item=1-3",
                     "서버 측에서 파라미터/히든 필드 값의 타입/범위/권한/소유권을 재검증하세요. 결제금액 등 중요 정보는 " +
                     "클라이언트가 전송한 값(파라미터·히든 필드)을 신뢰하지 말고 서버 측 DB 값을 기준으로 재계산하고, " +
                     "인증에는 서버가 발급한 토큰만 사용하며 ID 등 유추 가능한 값을 인증 수단으로 쓰지 마세요.",
                     sig.reason,
                     20,
                     20,
-                    testMsg
+                    out.testMsg
                 );
             }
         }
