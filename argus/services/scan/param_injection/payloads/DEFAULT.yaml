@@ -1,0 +1,16 @@
+category: DEFAULT
+description: "분류 불가 필드 기본 페이로드"
+
+payloads:
+  - "1"
+  - "0"
+  - "-1"
+  - "true"
+  - "false"
+  - "null"
+  - "admin"
+  - "test"
+  - "' OR '1'='1"
+
+mutation_strategies:
+  - type: "replace"

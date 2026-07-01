@@ -1,0 +1,30 @@
+category: AUTHORIZATION
+description: "권한/역할 파라미터 조작 페이로드"
+
+field_name_patterns:
+  - "role"
+  - "admin"
+  - "perm"
+  - "level"
+  - "^is_"
+  - "_flag$"
+  - "permission"
+  - "privilege"
+  - "grade"
+  - "authority"
+  - "access"
+
+payloads:
+  - "ADMIN"
+  - "SUPER_ADMIN"
+  - "ROOT"
+  - "MANAGER"
+  - "SELLER"
+  - "MODERATOR"
+  - "true"
+  - "1"
+  - "999"
+
+mutation_strategies:
+  - type: "replace"
+  - type: "append_suffix"

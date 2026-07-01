@@ -1,0 +1,28 @@
+category: LOGIC_FLOW
+description: "상태값/플로우 조작 페이로드"
+
+field_name_patterns:
+  - "status"
+  - "state"
+  - "type"
+  - "flag"
+  - "step"
+  - "phase"
+  - "stage"
+  - "mode"
+
+payloads:
+  - "ACTIVE"
+  - "APPROVED"
+  - "COMPLETED"
+  - "DELETED"
+  - "ADMIN"
+  - "PAID"
+  - "CONFIRMED"
+  - "true"
+  - "false"
+  - "1"
+  - "0"
+
+mutation_strategies:
+  - type: "replace"

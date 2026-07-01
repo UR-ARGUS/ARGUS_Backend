@@ -1,0 +1,32 @@
+category: IDOR
+description: "타 사용자 객체 직접 참조 페이로드"
+
+field_name_patterns:
+  - "(^|_)id$"
+  - "(^|_)uid$"
+  - "(^|_)no$"
+  - "user"
+  - "account"
+  - "mdn"
+  - "phone"
+  - "tel"
+  - "hp(_|$)"
+  - "memberid"
+  - "orderid"
+  - "bookingid"
+  - "sellerid"
+  - "targetid"
+
+payloads:
+  - "{original_value - 1}"
+  - "{original_value + 1}"
+  - "1"
+  - "2"
+  - "100"
+  - "0"
+  - "99999"
+
+mutation_strategies:
+  - type: "replace"
+  - type: "increment"
+  - type: "decrement"

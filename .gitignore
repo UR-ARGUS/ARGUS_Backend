@@ -1,0 +1,7 @@
+.env
+venv/
+__pycache__/
+*.pyc
+results/
+*.log
+argus/services/scan/zap_scripts/parameter_diff_scan.generated.js
