@@ -18,7 +18,14 @@ def save_scan_result_json(task_id: str, findings: list) -> str:
     return path
 
 @celery_app.task(bind=True)
-def run_scan_task(self, target_url: str, login_config: dict = None, custom_header: str = None, api_base_url: str = None):
+def run_scan_task(
+    self,
+    target_url: str,
+    login_config: dict = None,
+    custom_header: str = None,
+    api_base_url: str = None,
+    max_wait_seconds: int = 120,
+):
     logger.info(f"파라미터 조작 스캔 작업 시작: {target_url}")
     try:
         # 만약 api_base_url이 제공되었다면 OpenAPI/Swagger Spec JSON을 가져오기 위한 스키마 주소로 변조
@@ -30,7 +37,12 @@ def run_scan_task(self, target_url: str, login_config: dict = None, custom_heade
             logger.info(f"api_base_url이 주어졌으므로 Swagger Spec 스캔 모드로 전환합니다: {scan_target}")
 
         # ZAP API 및 LLM(Ollama/Claude) 파이프라인 통합 스캔 호출
-        findings = run_scan(scan_target, login_config=login_config, custom_header=custom_header)
+        findings = run_scan(
+            scan_target,
+            max_wait_seconds=max_wait_seconds,
+            login_config=login_config,
+            custom_header=custom_header,
+        )
         
         result_json_path = save_scan_result_json(self.request.id, findings)
         logger.info(f"스캔 작업 완료. 발견된 취약점(이상) 개수: {len(findings)} (결과 JSON: {result_json_path})")
