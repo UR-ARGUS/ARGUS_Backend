@@ -191,23 +191,30 @@ def _send_request(
         else:
             req_headers["Authorization"] = custom_header
 
+    # 실제로 전송할 바디를 먼저 구성 — 요청에 쓰는 것과 증적으로 남기는 것을 같은
+    # 값으로 보장하기 위해 한 번만 계산한다 (기존엔 요청 인자에서 즉석으로 만들고
+    # 버려서 실제 전송된 변조 바디가 어디에도 남지 않았음).
+    request_body_repr = ""
     try:
         if "application/json" in content_type:
+            body_obj = _apply_mutation_to_json(raw_body, param_name, param_value)
+            request_body_repr = json.dumps(body_obj, ensure_ascii=False)
             resp = requests.request(
-                method, url, timeout=TIMEOUT,
-                json=_apply_mutation_to_json(raw_body, param_name, param_value),
-                headers=req_headers,
+                method, url, timeout=TIMEOUT, json=body_obj, headers=req_headers,
             )
         elif "application/x-www-form-urlencoded" in content_type:
+            body_obj = _apply_mutation_to_form(raw_body, param_name, param_value)
+            request_body_repr = urlencode(body_obj)
             resp = requests.request(
-                method, url, timeout=TIMEOUT,
-                data=_apply_mutation_to_form(raw_body, param_name, param_value),
-                headers=req_headers,
+                method, url, timeout=TIMEOUT, data=body_obj, headers=req_headers,
             )
         elif "multipart/form-data" in content_type:
             # Content-Type은 requests가 files= 사용 시 boundary 포함해서 자동 설정 —
             # 여기서 직접 지정하면 boundary가 빠져 서버가 파싱을 못 한다.
             data, files = _apply_mutation_to_multipart(raw_body, param_name, param_value, binary_fields)
+            request_body_repr = json.dumps(
+                {**data, **{k: f"<binary:{k}>" for k in files}}, ensure_ascii=False
+            )
             resp = requests.request(
                 method, url, timeout=TIMEOUT,
                 data=data, files=files or None,
@@ -219,14 +226,16 @@ def _send_request(
             qs      = parse_qs(parsed.query, keep_blank_values=True)
             qs[param_name] = [param_value]
             new_url = urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
+            request_body_repr = f"(query string) {new_url}"
             resp    = requests.request(method, new_url, timeout=TIMEOUT, headers=req_headers)
 
         return {
-            "status":  resp.status_code,
-            "body":    resp.text,
-            "headers": dict(resp.headers),
+            "status":       resp.status_code,
+            "body":         resp.text,
+            "headers":      dict(resp.headers),
+            "request_body": request_body_repr,
         }
 
     except requests.RequestException as e:
         logger.warning(f"요청 실패 ({method} {url} [{param_name}={param_value!r}]): {e}")
-        return {"status": -1, "body": str(e), "headers": {}}
+        return {"status": -1, "body": str(e), "headers": {}, "request_body": request_body_repr}

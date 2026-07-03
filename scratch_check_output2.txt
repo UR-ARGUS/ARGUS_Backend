@@ -1,0 +1,32 @@
+total reviewed: 14
+confirmed (is_vulnerable=true): 6
+rejected (is_vulnerable=false) total: 8
+  - missed/truncated (marked [미검토]): 8
+  - explicit LLM rejection (real description): 0
+  - empty description (should be 0 now if fix works): 0
+
+=== confirmed findings ===
+- [HIGH] IDOR | insuranceProductId='2' | DATA_EXPOSURE | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: 보안 취약점으로 인해 권한 없는 요청이 성공적으로 처리되고, 서버는 조작된 값에 대해 응답을 수용하여 신규 필드가 생성됨.
+- [HIGH] IDOR | insuranceProductId='2' | DATA_EXPOSURE | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: 요청 파라미터를 조작하여 서버가 새로운 응답 필드를 생성하고, 해당 필드에는 타인의 데이터가 노출되는 취약점이 발견되었습니다.
+- [HIGH] PRIVILEGE | insuranceProductId='2' | DATA_EXPOSURE | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: 요청 파라미터 'insuranceProductId'를 조작하여 서버가 새로운 데이터 필드를 생성하고, 해당 데이터에 타인의 정보가 노출되는 취약점이 발견되었습니다.
+- [HIGH] PRIVILEGE | insuranceProductId='2' | DATA_EXPOSURE | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: 요청 파라미터 'insuranceProductId'를 조작하여 서버가 새로운 데이터 필드를 생성하고, 해당 데이터에 타인의 정보가 노출되는 취약점이 발견되었습니다.
+- [HIGH] PRIVILEGE | insuranceProductId='2' | DATA_EXPOSURE | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: 요청 파라미터 'insuranceProductId'를 조작하여 서버가 새로운 데이터 필드를 생성하고, 해당 데이터에 타인의 정보가 노출되는 취약점이 발견되었습니다.
+- [HIGH] PRIVILEGE | insuranceProductId='2' | DATA_EXPOSURE | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: 요청 파라미터 'insuranceProductId'를 조작하여 서버가 새로운 데이터 필드를 생성하고, 해당 데이터에 타인의 정보가 노출되는 취약점이 발견되었습니다.
+
+=== [미검토] sample (first 4) ===
+- IDOR | insuranceProductId='2' | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: [미검토] LLM 응답에 이 항목이 누락되어 판단 결과 없음 (출력 잘림 등) — 수동 검토 필요
+- IDOR | insuranceProductId='2' | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: [미검토] LLM 응답에 이 항목이 누락되어 판단 결과 없음 (출력 잘림 등) — 수동 검토 필요
+- IDOR | insuranceProductId='2' | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: [미검토] LLM 응답에 이 항목이 누락되어 판단 결과 없음 (출력 잘림 등) — 수동 검토 필요
+- IDOR | insuranceProductId='2' | http://192.168.0.23/user-api/api/v1/insurances/calculate
+  desc: [미검토] LLM 응답에 이 항목이 누락되어 판단 결과 없음 (출력 잘림 등) — 수동 검토 필요
+
+=== explicit rejected sample (if any) ===

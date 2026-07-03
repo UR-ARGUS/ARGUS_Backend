@@ -27,6 +27,14 @@ PAYLOADS: Dict[str, List[Tuple[str, str]]] = {
         ("1",           "숫자형 권한 플래그"),
         ("0",           "권한 비활성화 시도"),
     ],
+    "STATUS": [
+        ("PAID",      "결제 완료 상태로 변조"),
+        ("COMPLETED", "완료 상태로 변조"),
+        ("APPROVED",  "승인 상태로 변조"),
+        ("CONFIRMED", "확정 상태로 변조"),
+        ("true",      "boolean true 상태 플래그"),
+        ("1",         "숫자형 상태 플래그"),
+    ],
     # IDOR: manipulator.py의 _get_payloads()가 원본 ID 기준 동적 생성
     "IDOR": [],
     "HIDDEN": [

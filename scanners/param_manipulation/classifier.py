@@ -48,20 +48,30 @@ from .models import CollectedParam, ClassifiedParam, RawFinding, Finding
 logger = logging.getLogger(__name__)
 
 # 규칙 기반 분류 패턴 (Phase 2 사전 태깅 + Phase 4 폴백 공용)
+#
+# STATUS 규칙은 두 PRIVILEGE 규칙 사이에 끼워 넣는다 — role/admin류 구체적 권한
+# 키워드는 여전히 PRIVILEGE로 먼저 잡히게 하고(예: isAdmin), 그다음에야 STATUS
+# 키워드(paid/verified/approved 등)를 검사해 isPaid·isVerified 같은 주문/결제/승인
+# 상태 플래그를 가로챈다. 이 순서가 아니면 마지막 "^is[A-Z]" 캐치올이 isPaid까지
+# 전부 PRIVILEGE로 묶어버려 카테고리 의미가 어긋난다(가격/결제 우회인데 권한
+# 우회로 잘못 분류됨 — severity·LLM 설명도 엉뚱해짐).
 _FALLBACK_RULES: list[tuple[str, re.Pattern]] = [
     ("PRICE",     re.compile(r"price|amount|cost|fee|total|discount|point|pay|money|qty|quantity|charge|balance", re.I)),
     ("PRIVILEGE", re.compile(r"role|admin|perm|level|grade|authority|access|privilege", re.I)),
-    ("PRIVILEGE", re.compile(r"^is[A-Z]|[a-z0-9]Flag$")),  # camelCase: isAdmin, isStaff
+    ("STATUS",    re.compile(r"status|state|approved|verified|paid|confirmed|delivered|shipped|completed|complete|cancell?ed|refunded|published|enabled|active|deleted|archived", re.I)),
+    ("PRIVILEGE", re.compile(r"^is[A-Z]|[a-z0-9]Flag$")),  # camelCase: isAdmin, isStaff 등 STATUS에 안 걸린 나머지 boolean 플래그
     ("IDOR",      re.compile(r"(^|_)(id|uid|no)$|userid|memberid|orderid|boardid|seq|mdn|phone", re.I)),
     ("IDOR",      re.compile(r"[a-z0-9](Id|Uid|No)$")),  # camelCase: userId, orderId
 ]
 
 # anomaly_type → severity 기본값 (Phase 4 LLM 폴백 시 사용)
 _DEFAULT_SEVERITY: dict[str, str] = {
-    "PRIVILEGE_BYPASS": "HIGH",
-    "DATA_EXPOSURE":     "HIGH",
-    "POTENTIAL_IDOR":    "MEDIUM",
-    "ERROR_SUPPRESSED":  "MEDIUM",
+    "PRIVILEGE_BYPASS":              "HIGH",
+    "PERSISTED_PRIVILEGE_ESCALATION": "HIGH",
+    "VALUE_ACCEPTED":                "HIGH",
+    "DATA_EXPOSURE":                 "HIGH",
+    "POTENTIAL_IDOR":                "MEDIUM",
+    "ERROR_SUPPRESSED":              "MEDIUM",
 }
 
 
@@ -117,9 +127,12 @@ def _match_rule(param_name: str) -> tuple[str, str]:
 # ══════════════════════════════════════════════════════════════════
 
 # 백엔드별 청크 크기 — Ollama는 body 포함 시 입력 토큰이 무거우므로 작게 유지
+# (5→3으로 줄여도 여전히 36%가 출력 잘림으로 누락 → 정확도 우선 요청에 따라 1로 축소.
+#  호출당 판단 항목이 하나뿐이면 출력이 짧아 잘릴 가능성이 사실상 사라짐. 대신 LLM
+#  호출 횟수가 RawFinding 건수만큼 늘어나 스캔 시간은 길어짐 — 정확도와 맞바꾼 것)
 _CHUNK_SIZE: dict[str, int] = {
     "claude": 20,
-    "ollama":  5,
+    "ollama":  1,
 }
 
 # 백엔드별 body 미리보기 크기 — Ollama 입력 토큰 절감, Claude는 여유 있으므로 더 많이 전달
@@ -135,13 +148,14 @@ _OLLAMA_TIMEOUT_WRITE   =  10.0   # 요청 전송
 _OLLAMA_TIMEOUT_POOL    =   5.0   # 커넥션 풀 대기
 
 
-def interpret_findings(raw_findings: list[RawFinding]) -> list[Finding]:
+def interpret_findings(raw_findings: list[RawFinding], progress_callback=None) -> list[Finding]:
     """
     comparator.py(Phase 3)가 규칙 기반으로 탐지한 이상 징후(RawFinding)를
     LLM이 해석해 최종 Finding으로 확정한다.
 
     Args:
-        raw_findings: Phase 3에서 응답 diff 기반으로 탐지한 이상 징후 목록
+        raw_findings:       Phase 3에서 응답 diff 기반으로 탐지한 이상 징후 목록
+        progress_callback:  Callable[[int], None] — 청크 단위 LLM 처리 진행률(0~100) 보고
 
     Returns:
         list[Finding] — LLM(또는 폴백)이 severity/설명을 채운 최종 결과
@@ -156,9 +170,12 @@ def interpret_findings(raw_findings: list[RawFinding]) -> list[Finding]:
         return _fallback_promote(raw_findings)
 
     chunk_size = _CHUNK_SIZE[backend]
+    chunks = list(_chunks(raw_findings, chunk_size))
     findings: list[Finding] = []
-    for chunk in _chunks(raw_findings, chunk_size):
+    for i, chunk in enumerate(chunks):
         findings.extend(_call_llm(llm_client, chunk))
+        if progress_callback:
+            progress_callback(int((i + 1) / len(chunks) * 100))
 
     logger.info(f"[Phase 4] LLM 해석 완료 — 입력 {len(raw_findings)}건 → 확정 {len(findings)}건")
     return findings
@@ -253,7 +270,7 @@ def _call_llm(llm_client: tuple, chunk: list[RawFinding]) -> list[Finding]:
             client, model = llm_client[1], llm_client[2]
             resp     = client.chat.completions.create(
                 model=model,
-                max_tokens=1024,
+                max_tokens=2048,
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -267,11 +284,44 @@ def _call_llm(llm_client: tuple, chunk: list[RawFinding]) -> list[Finding]:
         logger.warning(f"[Phase 4] LLM 호출/파싱 실패: {e} — 규칙 기반 폴백으로 전환")
         return _fallback_promote(chunk)
 
+    # index_map에 없는 항목은 "LLM이 검토해서 아니라고 판단"한 게 아니라 "응답에서
+    # 통째로 누락"된 것이다 (주로 max_tokens 부족으로 인한 출력 잘림). 이 둘을
+    # 구분하지 않으면 20건 전부가 근거 없이 조용히 False가 되어버려 애초 이 필드를
+    # 만든 목적("왜 걸러졌는지 보이게")이 무색해진다 — 그래서 명시적으로 표시한다.
+    if len(index_map) < len(chunk):
+        missing = [i for i in range(len(chunk)) if i not in index_map]
+        logger.warning(
+            f"[Phase 4] LLM 응답에 {len(missing)}/{len(chunk)}개 항목 누락 (index={missing}) "
+            f"— 출력 잘림 가능성. 해당 항목은 '미검토'로 표시함"
+        )
+
     output: list[Finding] = []
     for i, rf in enumerate(chunk):
         r = index_map.get(i)
-        if not r or not r.get("is_vulnerable", False):
+        if r is None:
+            # LLM 응답 자체에 이 index가 없음 — 명시적 거부가 아니라 미검토
+            output.append(Finding(
+                url=rf.url,
+                method=rf.method,
+                param_name=rf.param_name,
+                category=rf.category,
+                payload_used=rf.payload_used,
+                payload_description=rf.payload_description,
+                baseline_status=rf.baseline_status,
+                test_status=rf.test_status,
+                anomaly_type=rf.anomaly_type,
+                anomaly_detail=rf.anomaly_detail,
+                baseline_body=rf.baseline_body,
+                test_body=rf.test_body,
+                baseline_request_body=rf.baseline_request_body,
+                test_request_body=rf.test_request_body,
+                severity=_DEFAULT_SEVERITY.get(rf.anomaly_type, "MEDIUM"),
+                llm_description="[미검토] LLM 응답에 이 항목이 누락되어 판단 결과 없음 (출력 잘림 등) — 수동 검토 필요",
+                llm_recommendation="Selenium 캡처 후 담당자 확인 요망",
+                is_vulnerable=False,
+            ))
             continue
+
         output.append(Finding(
             url=rf.url,
             method=rf.method,
@@ -285,9 +335,12 @@ def _call_llm(llm_client: tuple, chunk: list[RawFinding]) -> list[Finding]:
             anomaly_detail=rf.anomaly_detail,
             baseline_body=rf.baseline_body,
             test_body=rf.test_body,
+            baseline_request_body=rf.baseline_request_body,
+            test_request_body=rf.test_request_body,
             severity=r.get("severity", _DEFAULT_SEVERITY.get(rf.anomaly_type, "MEDIUM")),
             llm_description=r.get("description", ""),
             llm_recommendation=r.get("recommendation", ""),
+            is_vulnerable=bool(r.get("is_vulnerable", False)),
         ))
 
     return output
@@ -313,6 +366,8 @@ def _fallback_promote(chunk: list[RawFinding]) -> list[Finding]:
             anomaly_detail=rf.anomaly_detail,
             baseline_body=rf.baseline_body,
             test_body=rf.test_body,
+            baseline_request_body=rf.baseline_request_body,
+            test_request_body=rf.test_request_body,
             severity=_DEFAULT_SEVERITY.get(rf.anomaly_type, "MEDIUM"),
             llm_description="LLM 미사용 — 수동 검토 필요",
             llm_recommendation="Selenium 캡처 후 담당자 확인 요망",

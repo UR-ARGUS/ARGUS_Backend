@@ -9,7 +9,10 @@ import os
 logger = logging.getLogger("argus.tasks")
 
 def save_scan_result_json(task_id: str, findings: list) -> str:
-    # capture_pipeline 등에서 읽을 수 있도록 dict 리스트 형태로 변환하여 저장
+    # capture_pipeline 등에서 읽을 수 있도록 dict 리스트 형태로 변환하여 저장.
+    # findings는 Phase 4가 검토한 전체 항목(is_vulnerable=False 포함)이다 — LLM이
+    # 왜 특정 항목을 취약점이 아니라고 판단했는지 파일에서 그대로 확인 가능하도록
+    # 여기서 걸러내지 않는다.
     os.makedirs(settings.SCAN_RESULTS_DIR, exist_ok=True)
     path = os.path.join(settings.SCAN_RESULTS_DIR, f"{task_id}.json")
     findings_dict = [asdict(f) for f in findings]
@@ -36,23 +39,32 @@ def run_scan_task(
             scan_target = f"{api_base_url.rstrip('/')}?swagger_scan=true"
             logger.info(f"api_base_url이 주어졌으므로 Swagger Spec 스캔 모드로 전환합니다: {scan_target}")
 
+        def report_progress(phase: str, percent: int):
+            self.update_state(state="PROGRESS", meta={"phase": phase, "percent": percent})
+
         # ZAP API 및 LLM(Ollama/Claude) 파이프라인 통합 스캔 호출
         findings = run_scan(
             scan_target,
             max_wait_seconds=max_wait_seconds,
             login_config=login_config,
             custom_header=custom_header,
+            progress_callback=report_progress,
         )
         
         result_json_path = save_scan_result_json(self.request.id, findings)
-        logger.info(f"스캔 작업 완료. 발견된 취약점(이상) 개수: {len(findings)} (결과 JSON: {result_json_path})")
+        confirmed = [f for f in findings if f.is_vulnerable]
+        logger.info(
+            f"스캔 작업 완료. 검토 {len(findings)}건 중 확정 취약점 {len(confirmed)}건 "
+            f"(결과 JSON: {result_json_path})"
+        )
         return {
-            "status": "completed", 
-            "target": target_url, 
+            "status": "completed",
+            "target": target_url,
             "results": {
-                "total_alerts": len(findings),
-                "findings": [asdict(f) for f in findings]
-            }, 
+                "total_alerts": len(confirmed),
+                "findings": [asdict(f) for f in confirmed],
+                "reviewed_total": len(findings),
+            },
             "result_json_path": result_json_path
         }
     except Exception as e:

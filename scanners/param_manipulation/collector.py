@@ -19,6 +19,7 @@ SK Shieldus Web/API 개발보안 Guideline v3.0.0 / 항목 1-3
 import json
 import logging
 import time
+import uuid
 from typing import Any
 from urllib.parse import urlparse, parse_qs
 
@@ -35,6 +36,7 @@ def collect_params(
     max_wait_seconds: int = 120,
     login_config: dict = None,
     custom_header: str = None,
+    progress_callback=None,
 ) -> list[CollectedParam]:
     """
     ZAP Ajax Spider 또는 Swagger Spec URL로부터 파라미터 목록을 수집한다.
@@ -44,6 +46,7 @@ def collect_params(
         max_wait_seconds:  Ajax Spider 완료 대기 최대 시간 (초)
         login_config:      자동 로그인 설정 정보
         custom_header:     사용자 정의 헤더/쿠키 문자열
+        progress_callback: Callable[[int], None] — Ajax Spider 대기 중 진행률(0~100)을 보고
 
     Returns:
         List[CollectedParam]
@@ -69,27 +72,53 @@ def collect_params(
         },
     )
 
-    # Vite 개발 서버는 node_modules 의존성 번들(react-dom 등 수백KB~1MB+)을 그대로
-    # 서빙하는데, ZAP이 이걸 Ajax Spider로 수집해 매번 passive scan 큐에 넣으면
-    # 힙/CPU가 고갈되어 프록시 자체가 응답 불능에 빠진다 (실측: 힙 512MB 환경에서
-    # netty event loop가 종료돼 이후 모든 ZAP API 호출이 ConnectionReset로 실패함).
-    # 진단 대상이 아닌 서드파티 번들이므로 프록시 단계에서 아예 제외한다.
+    # ZAP은 데몬으로 계속 떠 있어 세션(사이트 트리/HTTP 히스토리)이 스캔 간에
+    # 그대로 유지된다. 세션을 초기화하지 않으면 아래 zap.core.messages()가
+    # 이번 스캔이 아니라 과거 스캔들에서 누적된 메시지까지 그대로 돌려줘서,
+    # 크롤링이 사실상 새로 일어나지 않았는데도 이전 스캔과 동일한 결과가
+    # 반복되는 문제가 있었다 (실측: 서로 다른 두 스캔의 파라미터 985건이
+    # 완전히 동일하게 나옴). 매 스캔마다 새 세션으로 초기화해 이전 히스토리를
+    # 제거한다.
     try:
-        zap.core.exclude_from_proxy(regex=".*/node_modules/.*")
+        zap.core.new_session(name=f"argus_session_{uuid.uuid4().hex[:8]}", overwrite=True)
     except Exception as e:
-        logger.warning(f"ZAP node_modules 제외 설정 실패 (무시하고 진행): {e}")
+        logger.warning(f"ZAP 세션 초기화 실패 (무시하고 진행 — 이전 스캔 히스토리가 섞일 수 있음): {e}")
+
+    # Vite 개발 서버는 node_modules 의존성 번들(react-dom 1MB+ 등)을 그대로 서빙하는데,
+    # ZAP의 passive scan이 이런 대용량 서드파티 파일을 반복적으로 스캔하다가 힙/CPU가
+    # 고갈되어 프록시 자체가 응답 불능/크래시에 빠진다 (실측: 힙 2GB에서도 300초 크롤링
+    # 중 crash). exclude_from_proxy(URL 정규식 제외)는 Ajax Spider 트래픽엔 적용되지
+    # 않아 효과가 없었음 — 이 도구는 애초에 zap.core.messages()로 원본 요청/응답만
+    # 읽고 zap.core.alerts() 등 ZAP 자체 분석 결과는 전혀 쓰지 않으므로,
+    # passive scan을 통째로 꺼서 리소스 경합의 근본 원인을 없앤다.
+    try:
+        zap.pscan.set_enabled(enabled="false")
+    except Exception as e:
+        logger.warning(f"ZAP passive scan 비활성화 실패 (무시하고 진행): {e}")
+
+    # Ajax Spider(Crawljax)는 기본값이 CPU 코어 수만큼 브라우저를 병렬로 띄우는데
+    # (실측 16~19개), 이 머신처럼 여유 메모리가 빠듯하면 GC가 API 서버 스레드를
+    # 순간적으로 멈춰 세워 프록시 연결이 끊기고 힙이 부족하면 크래시까지 간다.
+    # 크롤링은 느려지지만 안정성을 위해 병렬 브라우저 수를 낮게 고정한다.
+    try:
+        zap.ajaxSpider.set_option_number_of_browsers(2)
+    except Exception as e:
+        logger.warning(f"ZAP Ajax Spider 동시성 설정 실패 (무시하고 진행): {e}")
 
     # ── 1. 인증(로그인) 처리 ──────────────────────────────────────────
     context_id = None
+    login_context_name = None
+    login_user_name = None
     if login_config:
         logger.info("자동 로그인 설정 시작...")
         try:
-            # 기본 컨텍스트 획득 또는 신규 생성
-            context_name = "argus_context"
-            try:
-                context_id = zap.context.new_context(context_name)
-            except Exception:
-                context_id = zap.context.context(context_name)["id"]
+            # ZAP은 데몬으로 계속 떠 있어 스캔마다 이름이 겹치면 동일 이름의 context/user가
+            # 계속 누적되어 이름 기반 조회(zap.context.context(name) 등)가 어느 걸 가리키는지
+            # 모호해진다 (실측: 반복 실행 후 유저 생성이 알 수 없는 오류로 실패하는 현상 발생).
+            # 매 스캔마다 고유한 이름을 써서 이 문제를 원천 차단한다.
+            run_suffix = uuid.uuid4().hex[:8]
+            context_name = f"argus_context_{run_suffix}"
+            context_id = zap.context.new_context(context_name)
 
             # 대상 URL을 컨텍스트에 포함
             zap.context.include_in_context(context_name, f"{target_url.rstrip('/')}/.*")
@@ -100,26 +129,51 @@ def collect_params(
             password_field = login_config.get("password_field", "password")
             username = login_config.get("username")
             password = login_config.get("password")
+            # 로그인 API가 JSON body를 받는 경우("content_type": "json") jsonBasedAuthentication을
+            # 사용한다 — formBasedAuthentication은 x-www-form-urlencoded로만 보내서
+            # JSON 전용 로그인 API(예: {"email": "...", "password": "..."})에는 안 먹힘.
+            login_content_type = login_config.get("content_type", "form")
 
             if login_url and username and password:
-                # Form-based 인증 방식 설정
-                login_request_data = f"{username_field}={username}&{password_field}={password}"
+                from urllib.parse import quote
+
+                if login_content_type == "json":
+                    # ZAP 플레이스홀더({%username%}/{%password%})는 인증 시점에 실제 자격증명으로 치환됨
+                    json_template = json.dumps({username_field: "{%username%}", password_field: "{%password%}"})
+                    auth_method_name = "jsonBasedAuthentication"
+                    login_request_data = quote(json_template, safe="")
+                else:
+                    login_request_data = f"{username_field}={username}&{password_field}={password}"
+                    auth_method_name = "formBasedAuthentication"
+
                 zap.authentication.set_authentication_method(
                     contextid=context_id,
-                    authmethodname="formBasedAuthentication",
-                    authmethodconfigparams=f"loginUrl={login_url}&loginRequestData={login_request_data}"
+                    authmethodname=auth_method_name,
+                    authmethodconfigparams=f"loginUrl={quote(login_url, safe='')}&loginRequestData={login_request_data}"
                 )
-                
+
                 # 유저 생성 및 활성화
-                user_id = zap.users.new_user(contextid=context_id, name="argus_user")
+                # 주의: zapv2 라이브러리의 실제 키워드 인자명은 authcredentialsconfigparams
+                # (소문자) — credentialsConfigParams로 호출하면 TypeError가 나서
+                # 이 인증 설정 전체가 예외로 삼켜져 조용히 무시되고 있었음.
+                user_id = zap.users.new_user(contextid=context_id, name=f"argus_user_{run_suffix}")
+                if not str(user_id).isdigit():
+                    # ZAP API가 에러 메시지를 응답 본문에 담아 200으로 돌려주는 경우가 있어
+                    # 여기서 명시적으로 걸러내지 않으면 이후 인증 설정이 전부 무의미해진다.
+                    raise RuntimeError(f"zap.users.new_user 실패 — 유효하지 않은 user_id: {user_id!r}")
                 zap.users.set_authentication_credentials(
                     contextid=context_id,
                     userid=user_id,
-                    credentialsConfigParams=f"username={username}&password={password}"
+                    authcredentialsconfigparams=f"username={quote(username, safe='')}&password={quote(password, safe='')}"
                 )
                 zap.users.set_user_enabled(contextid=context_id, userid=user_id, enabled="true")
                 zap.forcedUser.set_forced_user(contextid=context_id, userid=user_id)
-                zap.forcedUser.set_forced_user_mode_enabled(enabled="true")
+                # 이 메서드는 위치 인자 이름이 boolean이라 enabled= 로 호출하면 TypeError
+                zap.forcedUser.set_forced_user_mode_enabled("true")
+                # Ajax Spider를 scan_as_user로 명시적으로 이 사용자로 돌리기 위해 이름을 남겨둔다
+                # (Forced User Mode만 켜두는 것보다 명시적 지정이 더 확실하게 적용됨)
+                login_context_name = context_name
+                login_user_name = f"argus_user_{run_suffix}"
                 logger.info(f"ZAP Forced User 설정 완료 (User ID: {user_id})")
         except Exception as e:
             logger.error(f"ZAP 인증 설정 중 오류 발생: {e}")
@@ -151,9 +205,31 @@ def collect_params(
 
     # ── Ajax Spider 실행 ──────────────────────────────────────────
     logger.info(f"Ajax Spider 시작: {target_url}")
-    zap.ajaxSpider.scan(target_url)
+    if login_context_name and login_user_name:
+        # Forced User Mode만 켜두는 것보다 특정 사용자로 명시 지정하는 쪽이 더 확실하게 적용된다
+        zap.ajaxSpider.scan_as_user(contextname=login_context_name, username=login_user_name, url=target_url)
+    else:
+        zap.ajaxSpider.scan(target_url)
+
+    # scan()/scan_as_user()는 비동기로 크롤을 시작시키지만 zap.ajaxSpider.status가
+    # "running"으로 전환되기까지 짧은 지연이 있다. 이 지연 중에 곧바로 아래
+    # while문에서 상태를 확인하면 직전 스캔의 잔여 상태("stopped")가 그대로
+    # 읽혀 루프가 한 번도 돌지 않고 즉시 빠져나가 크롤링이 전혀 일어나지
+    # 않은 채 "완료" 처리되는 문제가 있었다 (실측: 시작 244ms 만에 완료 로그
+    # 찍힘). 상태가 실제로 "running"으로 전환될 때까지 최대 10초 대기한다.
+    warmup_elapsed = 0
+    while zap.ajaxSpider.status != "running" and warmup_elapsed < 10:
+        time.sleep(1)
+        warmup_elapsed += 1
+    if zap.ajaxSpider.status != "running":
+        logger.warning(
+            "Ajax Spider가 시작 신호(running)를 받지 못했습니다 — "
+            "크롤링 결과가 비어있거나 불완전할 수 있습니다."
+        )
 
     elapsed = 0
+    if progress_callback:
+        progress_callback(0)
     while zap.ajaxSpider.status == "running":
         if elapsed >= max_wait_seconds:
             logger.warning(f"Ajax Spider 최대 대기시간({max_wait_seconds}s) 초과 — 강제 중단")
@@ -161,6 +237,13 @@ def collect_params(
             break
         time.sleep(2)
         elapsed += 2
+        if progress_callback:
+            # 크롤링 자체의 실제 완료율은 알 수 없으므로(AjaxSpider는 퍼센트를
+            # 제공하지 않음) 최대 대기시간 대비 경과 시간으로 근사한다.
+            progress_callback(min(99, int(elapsed / max_wait_seconds * 100)))
+
+    if progress_callback:
+        progress_callback(100)
 
     found = zap.ajaxSpider.number_of_results
     logger.info(f"Ajax Spider 완료 — 발견된 리소스: {found}건")

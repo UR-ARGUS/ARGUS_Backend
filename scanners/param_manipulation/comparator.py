@@ -11,9 +11,20 @@ SK Shieldus Web/API 개발보안 Guideline v3.0.0 / 항목 1-3
 
 이상 탐지 패턴:
     PRIVILEGE_BYPASS  baseline 401/403 → test 200 (권한 검증 우회)
+    VALUE_ACCEPTED    PRICE/PRIVILEGE/STATUS/HIDDEN 카테고리에서 기존 응답 필드의 값이
+                      baseline과 다르며 그 값이 주입한 조작값과 일치 (서버가 클라이언트
+                      제공 값을 검증 없이 그대로 계산/저장/반환에 반영했다는 직접 증거.
+                      예: 회원가입 시 role=ADMIN 주입 → 응답의 role 필드가 실제 ADMIN으로 반영
+                      예: 주문 생성 시 status=PAID 주입 → 응답의 status 필드가 실제 PAID로 반영)
     POTENTIAL_IDOR    test 200 + body 500byte 이상 증가 (타인 자원 노출 추정)
     DATA_EXPOSURE     test 응답에 baseline에 없던 JSON 키 출현
     ERROR_SUPPRESSED  baseline 에러 키워드 있음 → test 에러 없음 (조작값 수용)
+
+주의 (VALUE_ACCEPTED를 IDOR에는 적용하지 않는 이유):
+    IDOR 카테고리는 ID 값을 바꾸면 응답이 다른 레코드로 바뀌는 게 정상 동작이라
+    (다른 상품/게시글 조회), 값 일치 여부만으로 판단하면 정상 케이스가 전부
+    오탐으로 잡힌다. PRICE/PRIVILEGE/STATUS/HIDDEN은 반대로 서버가 재계산하거나
+    무시해야 할 필드라 조작값이 그대로 반영되는 순간 그 자체가 이상 신호다.
 
 여기서는 규칙 기반 탐지만 수행 — LLM을 호출하지 않으므로 이 단계는 결정적이고
 실행시간이 유계(bounded)이다. severity/취약 여부 최종 확정은 Phase 4에서 LLM이 담당.
@@ -71,8 +82,25 @@ def detect_anomaly(
             f"조작 후 200 OK (권한 검증 우회 가능성)"
         )
 
-    # ── 패턴 2: IDOR — 응답 크기 급증 ───────────────────────────
+    # ── 패턴 2: 조작값이 그대로 응답에 반영됨 ───────────────────
+    # PRICE/PRIVILEGE/STATUS/HIDDEN 필드는 서버가 재계산·검증해야 할 값이라, 기존에
+    # 존재하던 응답 필드의 값이 baseline과 달라지면서 그 값이 주입한 조작값과
+    # 일치하면 그 자체가 "서버가 클라이언트 입력을 검증 없이 수용했다"는 증거다.
+    # (기존 DATA_EXPOSURE 패턴은 "새 키 출현"만 봐서, role처럼 baseline 응답에도
+    #  이미 존재하던 키의 값만 바뀌는 경우는 전혀 잡지 못했다.)
     elif (
+        param.category in ("PRICE", "PRIVILEGE", "STATUS", "HIDDEN")
+        and test["status"] == 200
+    ):
+        changed = _detect_value_changed_to_payload(
+            baseline["body"], test["body"], payload_value
+        )
+        if changed:
+            anomaly_type   = "VALUE_ACCEPTED"
+            anomaly_detail = f"조작값이 그대로 응답에 반영됨: {changed}"
+
+    # ── 패턴 3: IDOR — 응답 크기 급증 ───────────────────────────
+    if anomaly_type is None and (
         test["status"] == 200
         and len(test["body"]) - len(baseline["body"]) > _IDOR_BODY_DELTA_THRESHOLD
     ):
@@ -80,14 +108,14 @@ def detect_anomaly(
         anomaly_type   = "POTENTIAL_IDOR"
         anomaly_detail = f"응답 크기 {delta:+d}byte 증가 — 타인 자원 노출 가능성"
 
-    # ── 패턴 3: 새로운 JSON 키 출현 ─────────────────────────────
-    else:
+    # ── 패턴 4: 새로운 JSON 키 출현 ─────────────────────────────
+    if anomaly_type is None:
         new_keys = _detect_new_json_keys(baseline["body"], test["body"])
         if new_keys and test["status"] == 200:
             anomaly_type   = "DATA_EXPOSURE"
             anomaly_detail = f"조작 후 신규 응답 필드 출현: {new_keys}"
 
-    # ── 패턴 4: 에러 사라짐 ─────────────────────────────────────
+    # ── 패턴 5: 에러 사라짐 ─────────────────────────────────────
     if anomaly_type is None:
         if (
             _has_error(baseline["body"])
@@ -113,6 +141,8 @@ def detect_anomaly(
         anomaly_detail=anomaly_detail,
         baseline_body=baseline["body"],
         test_body=test["body"],
+        baseline_request_body=baseline.get("request_body", ""),
+        test_request_body=test.get("request_body", ""),
     )
 
     logger.debug(
@@ -154,3 +184,52 @@ def _has_error(body: str) -> bool:
     """응답 바디에 에러 관련 키워드가 포함되어 있는지 확인한다."""
     body_lower = body.lower()
     return any(kw in body_lower for kw in ERROR_KEYWORDS)
+
+
+def _detect_value_changed_to_payload(
+    baseline_body: str,
+    test_body:     str,
+    payload_value: str,
+) -> list[str]:
+    """
+    baseline과 test에 공통으로 존재하는 키 중, test 쪽 값이 baseline과 다르면서
+    그 값이 주입한 payload_value와 일치(대소문자 무시)하는 항목을 찾는다.
+
+    새 키 출현이 아니라 "기존 키의 값이 조작값으로 바뀜"을 잡기 위한 것 —
+    role처럼 baseline 응답에도 이미 존재하는 필드가 대상인 경우를 커버한다.
+    """
+    payload_norm = str(payload_value).strip().lower()
+    if not payload_norm:
+        return []
+
+    try:
+        base_values = _extract_leaf_values(json.loads(baseline_body))
+        test_values = _extract_leaf_values(json.loads(test_body))
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    changed: list[str] = []
+    for key, test_val in test_values.items():
+        if key not in base_values:
+            continue
+        base_val = base_values[key]
+        if base_val == test_val:
+            continue
+        if str(test_val).strip().lower() == payload_norm:
+            changed.append(f"{key}: {base_val!r} -> {test_val!r}")
+    return changed
+
+
+def _extract_leaf_values(obj: object, prefix: str = "") -> dict:
+    """JSON 오브젝트의 리프(leaf) 값만 dot-notation 키로 평탄화한다."""
+    values: dict = {}
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            full = f"{prefix}.{k}" if prefix else k
+            values.update(_extract_leaf_values(v, full))
+    elif isinstance(obj, list):
+        for i, item in enumerate(obj):
+            values.update(_extract_leaf_values(item, f"{prefix}[{i}]"))
+    else:
+        values[prefix] = obj
+    return values

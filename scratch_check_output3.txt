@@ -1,0 +1,10 @@
+total reviewed: 14
+confirmed (is_vulnerable=true): 9
+rejected total: 5
+  - missed/truncated (marked [미검토]): 5  (36% of total)
+  - explicit LLM rejection (real description): 0
+  - empty description (bug would show here): 0
+
+--- comparison ---
+previous run (chunk=5): 14 reviewed, 6 confirmed, 8 missed (57%)
+this run    (chunk=3): 14 reviewed, 9 confirmed, 5 missed (36%)

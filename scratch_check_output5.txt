@@ -1,0 +1,26 @@
+total reviewed: 34
+entries with non-empty baseline_request_body AND test_request_body: 34 / 34
+
+=== finding 0 ===
+param_name: insuranceProductId, payload_used: '2', category: PRIVILEGE
+is_vulnerable: True
+baseline_request_body: {"productId": 1, "insuranceProductId": "1", "birthdate": "1995-05-25", "startDate": "2026-07-01", "endDate": "2026-07-10", "coverageLevel": "DELUXE"}
+test_request_body:     {"productId": 1, "insuranceProductId": "2", "birthdate": "1995-05-25", "startDate": "2026-07-01", "endDate": "2026-07-10", "coverageLevel": "DELUXE"}
+  -> differing keys (should be just the mutated param): ['insuranceProductId']
+  -> identical sibling keys (proves rest of body preserved): ['productId', 'birthdate', 'startDate', 'endDate', 'coverageLevel']
+
+=== finding 1 ===
+param_name: insuranceProductId, payload_used: '2', category: PRIVILEGE
+is_vulnerable: True
+baseline_request_body: {"productId": 1, "insuranceProductId": "1", "birthdate": "1995-05-25", "startDate": "2026-07-01", "endDate": "2026-07-10", "coverageLevel": "DELUXE"}
+test_request_body:     {"productId": 1, "insuranceProductId": "2", "birthdate": "1995-05-25", "startDate": "2026-07-01", "endDate": "2026-07-10", "coverageLevel": "DELUXE"}
+  -> differing keys (should be just the mutated param): ['insuranceProductId']
+  -> identical sibling keys (proves rest of body preserved): ['productId', 'birthdate', 'startDate', 'endDate', 'coverageLevel']
+
+=== finding 2 ===
+param_name: insuranceProductId, payload_used: '2', category: PRIVILEGE
+is_vulnerable: True
+baseline_request_body: {"productId": 1, "insuranceProductId": "1", "birthdate": "1995-05-25", "startDate": "2026-07-01", "endDate": "2026-07-10", "coverageLevel": "DELUXE"}
+test_request_body:     {"productId": 1, "insuranceProductId": "2", "birthdate": "1995-05-25", "startDate": "2026-07-01", "endDate": "2026-07-10", "coverageLevel": "DELUXE"}
+  -> differing keys (should be just the mutated param): ['insuranceProductId']
+  -> identical sibling keys (proves rest of body preserved): ['productId', 'birthdate', 'startDate', 'endDate', 'coverageLevel']

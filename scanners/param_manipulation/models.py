@@ -55,6 +55,8 @@ class RawFinding:
     anomaly_detail: str
     baseline_body: str
     test_body: str
+    baseline_request_body: str = ""  # 실제 서버로 보낸 baseline 요청 바디 (변조 전)
+    test_request_body: str = ""      # 실제 서버로 보낸 test 요청 바디 (파라미터 변조 후)
 
 
 @dataclass
@@ -63,10 +65,15 @@ class Finding:
     최종 확정된 취약점 단위 — 다음 단계(Selenium 증적 캡처)로 전달.
 
     anomaly_type:
-        PRIVILEGE_BYPASS  baseline 401/403 → test 200 (권한 검증 우회)
-        POTENTIAL_IDOR    test 200 + body 500byte↑ 증가 (타인 자원 노출 추정)
-        DATA_EXPOSURE     test 응답에 baseline에 없던 JSON 키 출현
-        ERROR_SUPPRESSED  baseline 에러 키워드 → test 에러 없음 (조작값 수용)
+        PRIVILEGE_BYPASS   baseline 401/403 → test 200 (권한 검증 우회)
+        PERSISTED_PRIVILEGE_ESCALATION
+                           (Phase 3.5, verifier.py) 회원가입 등 응답에 role이 노출되지
+                           않아 즉시 diff로는 무신호였으나, 로그인 후 프로필 재조회에서
+                           주입한 값이 실제로 저장·반영된 것을 확인
+        VALUE_ACCEPTED     PRICE/PRIVILEGE/HIDDEN 필드의 기존 응답 값이 조작값으로 그대로 반영
+        POTENTIAL_IDOR     test 200 + body 500byte↑ 증가 (타인 자원 노출 추정)
+        DATA_EXPOSURE      test 응답에 baseline에 없던 JSON 키 출현
+        ERROR_SUPPRESSED   baseline 에러 키워드 → test 에러 없음 (조작값 수용)
 
     severity: HIGH | MEDIUM
     llm_description / llm_recommendation: Phase 4에서 LLM이 채움 (폴백 시 규칙 기반 문구)
@@ -87,3 +94,8 @@ class Finding:
     severity: str         # HIGH | MEDIUM
     llm_description: str = ""
     llm_recommendation: str = ""
+    baseline_request_body: str = ""  # 실제 서버로 보낸 baseline 요청 바디 (변조 전)
+    test_request_body: str = ""      # 실제 서버로 보낸 test 요청 바디 (파라미터 변조 후) — 증적 자료
+    is_vulnerable: bool = True  # LLM이 최종 판단한 취약 여부. False면 "1차 탐지는 됐지만
+                                 # LLM이 검토해서 취약점이 아니라고 판단한 항목" — 검토 가시성을 위해
+                                 # 걸러내지 않고 그대로 남겨둔다 (규칙 기반 폴백 시엔 판단 불가 → True 기본값).

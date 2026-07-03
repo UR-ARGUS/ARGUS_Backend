@@ -161,7 +161,8 @@ C:\Program Files\ZAP\Zed Attack Proxy\ZAP_JVM.properties
 
 ### 경로 A: 독립 검증 스크립트 (Postgres/Redis/Celery 불필요)
 
-실제 작업에서 사용한 방법. 외부 서비스 없이 ZAP 만 있으면 바로 검증 가능.
+`scanners.param_manipulation.engine.run_scan` (Phase 1~4 파이프라인)을 직접 호출한다.
+외부 서비스 없이 ZAP 만 있으면 바로 검증 가능.
 
 ```bash
 # 기본 실행
@@ -173,7 +174,7 @@ poetry run python verify_scan.py \
   --auth "Bearer YOUR_TOKEN" \
   --verbose
 
-# SPA 와 백엔드 API 가 분리된 경우
+# SPA 와 백엔드 API 가 분리된 경우 (Swagger/OpenAPI 스펙 스캔 모드)
 poetry run python verify_scan.py \
   --url https://frontend.com \
   --api-base https://api.backend.com \
@@ -181,9 +182,8 @@ poetry run python verify_scan.py \
 ```
 
 스크립트가 자동으로 수행하는 사전 체크:
-- ZAP REST API 접근 가능 여부
+- ZAP REST API 접근 가능 여부 (Phase 1 크롤링이 이 ZAP 데몬을 사용)
 - AJAX Spider 브라우저 (chrome-headless) 확인
-- 한글 인코딩 설정 체크리스트 출력
 
 ### 경로 B: 전체 FastAPI + Celery 파이프라인
 

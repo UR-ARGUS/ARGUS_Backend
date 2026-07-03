@@ -1,0 +1,151 @@
+total reviewed: 36
+confirmed: 16
+rejected: 20
+
+=== confirmed sample (first 3, full fields) ===
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "PRIVILEGE",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:44.328368184Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:44.402446592Z\"}",
+  "severity": "HIGH",
+  "llm_description": "권한 없는 요청으로 인해 서버가 조작된 값을 수용하여 신규 필드인 'data.coverageDetails.passport_loss'를 생성함으로써 타인 데이터 노출이 발생했습니다.",
+  "llm_recommendation": "API에서 해당 필드의 존재 여부를 검증하고, 필요하지 않은 경우 제거하거나 보안적으로 처리해야 합니다.",
+  "is_vulnerable": true
+}
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "PRIVILEGE",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:46.572229213Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:46.609239045Z\"}",
+  "severity": "HIGH",
+  "llm_description": "보험상품 ID를 조작하여 서버가 새로운 응답 필드인 'data.coverageDetails.passport_loss'을 생성함으로써 타인 데이터 노출이 발생했습니다.",
+  "llm_recommendation": "보험 상품 ID에 대한 권한 없는 요청을 허용하지 않아야 하며, 해당 필드의 존재를 정상 검증하고 조작된 값은 거부해야 합니다.",
+  "is_vulnerable": true
+}
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "PRIVILEGE",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:48.740970101Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:48.771544168Z\"}",
+  "severity": "HIGH",
+  "llm_description": "권한 없는 요청으로 인해 서버가 조작된 값을 수용하여 신규 필드인 'data.coverageDetails.passport_loss'를 생성함으로써 타인 데이터 노출이 발생했습니다.",
+  "llm_recommendation": "API에서 해당 필드의 존재 여부를 검증하고, 필요하지 않은 경우 제거하거나 보안적으로 처리해야 합니다.",
+  "is_vulnerable": true
+}
+
+=== rejected sample (first 5, full fields) ===
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "IDOR",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:44.785685283Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:44.836852551Z\"}",
+  "severity": "HIGH",
+  "llm_description": "",
+  "llm_recommendation": "",
+  "is_vulnerable": false
+}
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "IDOR",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:45.212618402Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:45.306153821Z\"}",
+  "severity": "HIGH",
+  "llm_description": "",
+  "llm_recommendation": "",
+  "is_vulnerable": false
+}
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "IDOR",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":90000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:45.666941575Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":290000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:45.723791689Z\"}",
+  "severity": "HIGH",
+  "llm_description": "",
+  "llm_recommendation": "",
+  "is_vulnerable": false
+}
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "IDOR",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:46.086060059Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:46.133894303Z\"}",
+  "severity": "HIGH",
+  "llm_description": "",
+  "llm_recommendation": "",
+  "is_vulnerable": false
+}
+{
+  "url": "http://192.168.0.80/user-api/api/v1/insurances/calculate",
+  "method": "POST",
+  "param_name": "insuranceProductId",
+  "category": "IDOR",
+  "payload_used": "2",
+  "payload_description": "ID 2 (원본+1)",
+  "baseline_status": 200,
+  "test_status": 200,
+  "anomaly_type": "DATA_EXPOSURE",
+  "anomaly_detail": "조작 후 신규 응답 필드 출현: ['data.coverageDetails.passport_loss']",
+  "baseline_body": "{\"success\":true,\"data\":{\"productId\":1,\"productName\":\"ONDE Protect STANDARD\",\"travelDays\":10,\"baseDailyRate\":9000.00,\"totalPremium\":135000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 1,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 50만 원\",\"liability\":\"국내외 배상책임 500만 원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:47.059098801Z\"}",
+  "test_body": "{\"success\":true,\"data\":{\"productId\":2,\"productName\":\"ONDE Protect DELUXE\",\"travelDays\":10,\"baseDailyRate\":29000.00,\"totalPremium\":435000,\"coverageDetails\":{\"medical_expense_overseas\":\"해외 상해/질병 치료 3,000만 원\",\"baggage_loss\":\"휴대품 손해/분실 100만 원\",\"liability\":\"국내외 배상책임 1,000만 원\",\"passport_loss\":\"여권 분실 재발급 비용 및 수수료 지원\"}},\"message\":\"실시간 동적 보험 요율 사전 계산 결과를 조회했습니다.\",\"timestamp\":\"2026-07-03T05:53:47.105466342Z\"}",
+  "severity": "HIGH",
+  "llm_description": "",
+  "llm_recommendation": "",
+  "is_vulnerable": false
+}
