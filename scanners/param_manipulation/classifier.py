@@ -242,7 +242,7 @@ def _call_llm(llm_client: tuple, chunk: list[RawFinding]) -> list[Finding]:
 1. is_vulnerable: 실제 취약점인지 (true/false)
    - true  조건: 권한 없는 요청 성공 / 타인 데이터 노출 / 서버가 조작값을 수용
    - false 조건: 단순 크기 변화 / 에러 메시지 차이 / 정상 검증 후 거부
-2. category: PRICE | PRIVILEGE | IDOR | HIDDEN | UNKNOWN
+2. category: PRICE | PRIVILEGE | STATUS | IDOR | HIDDEN | UNKNOWN
 3. severity: HIGH | MEDIUM | LOW
 4. description: 한국어로 취약점 설명 (2문장 이내)
 5. recommendation: 한국어로 개발자 대상 조치 방안 (1문장)

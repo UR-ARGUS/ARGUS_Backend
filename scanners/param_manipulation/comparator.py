@@ -32,6 +32,7 @@ SK Shieldus Web/API 개발보안 Guideline v3.0.0 / 항목 1-3
 
 import json
 import logging
+import re
 
 from .models import ClassifiedParam, RawFinding
 
@@ -100,8 +101,13 @@ def detect_anomaly(
             anomaly_detail = f"조작값이 그대로 응답에 반영됨: {changed}"
 
     # ── 패턴 3: IDOR — 응답 크기 급증 ───────────────────────────
+    # category가 IDOR(ID류 파라미터)일 때만 적용한다. PRICE/PRIVILEGE/STATUS 같은
+    # 필터성 파라미터는 유효한 값을 넣을수록 매칭되는 레코드가 늘어나 응답이 커지는
+    # 게 정상 동작이라, 카테고리 구분 없이 이 규칙을 적용하면 그런 정상 필터링을
+    # 전부 "타인 자원 노출"로 오탐한다.
     if anomaly_type is None and (
-        test["status"] == 200
+        param.category == "IDOR"
+        and test["status"] == 200
         and len(test["body"]) - len(baseline["body"]) > _IDOR_BODY_DELTA_THRESHOLD
     ):
         delta          = len(test["body"]) - len(baseline["body"])
@@ -180,10 +186,37 @@ def _extract_all_keys(obj: object, prefix: str = "") -> list[str]:
     return keys
 
 
+_ERROR_FIELD_NAMES = {
+    "error", "errors", "message", "msg", "detail", "details",
+    "errormessage", "error_message", "reason", "description",
+}
+
+
 def _has_error(body: str) -> bool:
-    """응답 바디에 에러 관련 키워드가 포함되어 있는지 확인한다."""
-    body_lower = body.lower()
-    return any(kw in body_lower for kw in ERROR_KEYWORDS)
+    """
+    응답 바디에 에러 관련 신호가 있는지 확인한다.
+
+    JSON 응답이면 error/message류 필드의 값만 검사한다 — 전체 바디를 통째로 검색하면
+    게시글 본문 같은 자유 텍스트 콘텐츠에 우연히 키워드가 섞여 들어간 것만으로 오탐이
+    난다 (실측: 저장된 XSS 페이로드 `<img src=x onerror=...>` 안의 "onerror"가 "error"에
+    매칭되어, 실제로는 정상적인 대량 목록 응답이 "에러 응답"으로 잘못 분류됨).
+    JSON이 아니면(HTML 에러 페이지 등) 단어 경계 기준으로 키워드를 찾는다.
+    """
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        body_lower = body.lower()
+        return any(re.search(rf"\b{kw}\b", body_lower) for kw in ERROR_KEYWORDS)
+
+    for key, value in _extract_leaf_values(data).items():
+        if not isinstance(value, str):
+            continue
+        field_name = key.rsplit(".", 1)[-1].lower()
+        if field_name in _ERROR_FIELD_NAMES:
+            value_lower = value.lower()
+            if any(kw in value_lower for kw in ERROR_KEYWORDS):
+                return True
+    return False
 
 
 def _detect_value_changed_to_payload(

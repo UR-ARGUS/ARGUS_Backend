@@ -88,22 +88,20 @@ def run_verify(
     api_base_url: str,
     max_wait_seconds: int,
 ) -> list:
-    # tasks.py의 api_base_url 처리 방식과 동일 — Swagger/OpenAPI Spec 스캔 모드로 전환
-    scan_target = target_url
     if api_base_url:
-        scan_target = f"{api_base_url.rstrip('/')}?swagger_scan=true"
-        print(f"      Swagger/OpenAPI Spec 스캔 모드: {scan_target}")
+        print(f"      Swagger/OpenAPI Spec + ZAP 병행 스캔 모드: {api_base_url}")
 
-    print(f"\n스캔 실행: {scan_target}")
+    print(f"\n스캔 실행: {target_url}")
 
     def progress(phase: str, pct: int) -> None:
         print(f"      [{phase}] {pct}%", end="\r", flush=True)
 
     findings = run_scan(
-        scan_target,
+        target_url,
         max_wait_seconds=max_wait_seconds,
         custom_header=auth_header or None,
         progress_callback=progress,
+        api_base_url=api_base_url,
     )
     print()  # 줄바꿈
 

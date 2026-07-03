@@ -23,6 +23,10 @@ class CollectedParam:
                            # 알 수 없으면 빈 문자열 — 이 경우 해당 필드 하나만 담은 body로 폴백.
     binary_fields: str = ""  # content_type이 multipart/form-data일 때, raw_body 필드 중
                               # 실제 파일(바이너리)로 보내야 하는 필드명 목록 (콤마 구분).
+    enum_values: str = ""    # OpenAPI 스키마에 enum이 정의된 경우 그 후보값 목록 (콤마 구분).
+                              # manipulator.py가 이 값들을 우선 페이로드로 써서, 서비스마다
+                              # 다른 상태값 이름(PAID/CONFIRMED 등 하드코딩 추측)에 의존하지 않고
+                              # 실제 스펙 기반으로 변조 테스트를 수행할 수 있게 한다.
 
 
 @dataclass

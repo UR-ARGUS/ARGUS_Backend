@@ -50,6 +50,7 @@ def run_scan(
     login_config: dict = None,
     custom_header: str = None,
     progress_callback=None,
+    api_base_url: str = None,
 ) -> list[Finding]:
     """
     1-3 스캔 엔진 진입점.
@@ -58,12 +59,15 @@ def run_scan(
     이상 탐지 결과인 findings[] 리스트를 반환한다.
 
     Args:
-        target_url:        진단 대상 URL
+        target_url:        진단 대상 URL (프론트엔드 SPA 등 ZAP Ajax Spider 크롤링 대상)
         max_wait_seconds:  Ajax Spider 완료 대기 최대 시간 (초, 기본 120)
         login_config:      자동 로그인 설정 정보
         custom_header:     사용자 정의 헤더/쿠키 문자열
         progress_callback: Callable[[str, int], None] — (phase, percent 0~100)을 단계마다 보고.
                             phase는 "collect" / "classify" / "manipulate" / "llm_review" 중 하나.
+        api_base_url:      백엔드 API 서버 URL. 주어지면 Swagger Spec으로 비즈니스 파라미터를
+                            먼저 확보하고, target_url은 ZAP Ajax Spider로 별도 크롤링해 Swagger에
+                            없는 파라미터만 보완한다 (collector.collect_params 참고).
 
     Returns:
         List[Finding] — Phase 4에서 LLM이 검토한 항목 전체 (is_vulnerable=False 포함).
@@ -87,6 +91,7 @@ def run_scan(
         login_config=login_config,
         custom_header=custom_header,
         progress_callback=lambda pct: report("collect", pct),
+        api_base_url=api_base_url,
     )
     logger.info(f"[Phase 1] 수집된 파라미터 수: {len(collected)}")
 

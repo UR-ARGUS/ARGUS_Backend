@@ -31,24 +31,20 @@ def run_scan_task(
 ):
     logger.info(f"파라미터 조작 스캔 작업 시작: {target_url}")
     try:
-        # 만약 api_base_url이 제공되었다면 OpenAPI/Swagger Spec JSON을 가져오기 위한 스키마 주소로 변조
-        # 예: http://localhost:8000 -> http://localhost:8000/openapi.json
-        scan_target = target_url
         if api_base_url:
-            # Swagger 자동 탐지 플래그를 붙여서 수집기로 포워딩
-            scan_target = f"{api_base_url.rstrip('/')}?swagger_scan=true"
-            logger.info(f"api_base_url이 주어졌으므로 Swagger Spec 스캔 모드로 전환합니다: {scan_target}")
+            logger.info(f"api_base_url이 주어졌으므로 Swagger Spec + ZAP 크롤링을 병행합니다: {api_base_url}")
 
         def report_progress(phase: str, percent: int):
             self.update_state(state="PROGRESS", meta={"phase": phase, "percent": percent})
 
         # ZAP API 및 LLM(Ollama/Claude) 파이프라인 통합 스캔 호출
         findings = run_scan(
-            scan_target,
+            target_url,
             max_wait_seconds=max_wait_seconds,
             login_config=login_config,
             custom_header=custom_header,
             progress_callback=report_progress,
+            api_base_url=api_base_url,
         )
         
         result_json_path = save_scan_result_json(self.request.id, findings)

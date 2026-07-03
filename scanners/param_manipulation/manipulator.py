@@ -97,7 +97,24 @@ def _get_payloads(param: ClassifiedParam) -> list[tuple[str, str]]:
             )
             return []
 
-    return PAYLOADS.get(param.category, [])
+    hardcoded = PAYLOADS.get(param.category, [])
+
+    # Swagger 스펙에 enum이 정의된 필드(예: status)는 서비스마다 실제 값 이름이 다르다
+    # (PAID/CONFIRMED는 특정 도메인 추측일 뿐, 다른 서비스는 PENDING/DONE 등을 쓸 수 있음).
+    # 스펙이 선언한 실제 enum 값을 우선 페이로드로 써서 하드코딩된 값에 의존하지 않고
+    # 어떤 서비스에도 통하는 범용적인 상태 전이 테스트가 가능하게 한다. baseline과 동일한
+    # 값은 비교 무의미하므로 제외하고, 하드코딩 목록(ADMIN 등 명백한 악성값 포함)도
+    # 이어붙여 스펙 밖 조작 시도는 그대로 유지한다.
+    if param.collected.enum_values:
+        baseline_val = str(param.collected.param_value).strip().lower()
+        enum_payloads = [
+            (v, f"스펙 enum 값으로 변조: {v}")
+            for v in param.collected.enum_values.split(",")
+            if v.strip().lower() != baseline_val
+        ]
+        return enum_payloads + hardcoded
+
+    return hardcoded
 
 
 def _apply_mutation_to_json(raw_body: str, param_name: str, value: str) -> dict:

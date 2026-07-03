@@ -37,32 +37,49 @@ def collect_params(
     login_config: dict = None,
     custom_header: str = None,
     progress_callback=None,
+    api_base_url: str = None,
 ) -> list[CollectedParam]:
     """
-    ZAP Ajax Spider 또는 Swagger Spec URL로부터 파라미터 목록을 수집한다.
+    Swagger Spec과 ZAP Ajax Spider를 상호보완적으로 병행해 파라미터 목록을 수집한다.
 
     Args:
-        target_url:        크롤링 대상 URL 혹은 Swagger/OpenAPI Spec JSON URL
+        target_url:        크롤링 대상 URL (SPA 프론트엔드) 혹은 Swagger/OpenAPI Spec JSON URL
         max_wait_seconds:  Ajax Spider 완료 대기 최대 시간 (초)
         login_config:      자동 로그인 설정 정보
         custom_header:     사용자 정의 헤더/쿠키 문자열
         progress_callback: Callable[[int], None] — Ajax Spider 대기 중 진행률(0~100)을 보고
+        api_base_url:      백엔드 API 서버 URL. 주어지면 Swagger Spec에서 비즈니스 파라미터를
+                            먼저 확보하고, target_url은 별도로 ZAP Ajax Spider로 크롤링해
+                            Swagger에 없는 파라미터만 보완한다 (중복 제거).
 
     Returns:
         List[CollectedParam]
     """
-    # ── Swagger / OpenAPI Spec URL인 경우 직접 파싱 ──────────────────
-    if (
-        "swagger_scan=true" in target_url 
-        or target_url.endswith(".json") 
-        or "swagger" in target_url.lower() 
+    # ── Swagger / OpenAPI Spec 파싱 ──────────────────────────────────
+    # api_base_url이 주어지면 target_url(프론트엔드)과 별도로 Swagger를 우선 확보하고
+    # 아래에서 ZAP 크롤링도 이어서 수행해 보완한다 (하위 dedupe 로직 참고).
+    # api_base_url이 없고 target_url 자체가 spec URL 패턴이면 기존처럼 Swagger 단독 처리.
+    swagger_params: list[CollectedParam] = []
+    swagger_spec_url = api_base_url
+    if not swagger_spec_url and (
+        "swagger_scan=true" in target_url
+        or target_url.endswith(".json")
+        or "swagger" in target_url.lower()
         or "openapi" in target_url.lower()
     ):
-        logger.info(f"Swagger/OpenAPI Spec 연동 진단을 감지했습니다: {target_url}")
+        swagger_spec_url = target_url
+
+    if swagger_spec_url:
+        logger.info(f"Swagger/OpenAPI Spec 연동 진단을 감지했습니다: {swagger_spec_url}")
         try:
-            return _parse_swagger_spec(target_url, custom_header)
+            swagger_params = _parse_swagger_spec(swagger_spec_url, custom_header)
         except Exception as e:
-            logger.error(f"Swagger 파싱 실패: {e}. 일반 ZAP 크롤링으로 폴백합니다.")
+            logger.error(f"Swagger 파싱 실패: {e}. ZAP 크롤링만으로 진행합니다.")
+
+        if not api_base_url:
+            # target_url 자체가 spec URL인 레거시 경로 — 별도로 크롤링할 프론트엔드
+            # URL이 없으므로 Swagger 결과만 반환한다.
+            return swagger_params
 
     zap = ZAPv2(
         apikey=settings.ZAP_API_KEY or None,
@@ -100,6 +117,10 @@ def collect_params(
     # (실측 16~19개), 이 머신처럼 여유 메모리가 빠듯하면 GC가 API 서버 스레드를
     # 순간적으로 멈춰 세워 프록시 연결이 끊기고 힙이 부족하면 크래시까지 간다.
     # 크롤링은 느려지지만 안정성을 위해 병렬 브라우저 수를 낮게 고정한다.
+    #
+    # (한때 1로 낮춰 Vite HMR WebSocket 핸드셰이크 경합으로 인한
+    # ZAP WebSocketException("Already created")을 줄여봤으나, 크롤링 커버리지
+    # 트레이드오프 때문에 롤백 — 필요하면 다시 1로 낮추는 것을 검토할 것.)
     try:
         zap.ajaxSpider.set_option_number_of_browsers(2)
     except Exception as e:
@@ -283,7 +304,24 @@ def collect_params(
         # Hidden 필드 — Ajax Spider가 HTML을 렌더링한 응답 바디에서 추출
         results.extend(_parse_hidden_fields(raw_url, method, resp_body, content_type))
 
-    logger.info(f"총 수집된 파라미터: {len(results)}개")
+    logger.info(f"ZAP 크롤링으로 수집된 파라미터: {len(results)}개")
+
+    if swagger_params:
+        # Swagger가 이미 다루는 (method, path, param_name) 조합은 ZAP 쪽에서 제외한다 —
+        # 같은 API를 두 경로가 중복 수집하면 Phase 3 페이로드 주입 요청량이 배로 늘어남.
+        # 쿼리스트링/호스트 차이는 무시하고 path만 비교 (Swagger의 resolved_path 값과
+        # ZAP이 실제로 크롤링 중 관측한 URL의 path가 같은 엔드포인트를 가리키기 때문).
+        swagger_keys = {(p.method, urlparse(p.url).path, p.param_name) for p in swagger_params}
+        deduped_zap = [
+            p for p in results
+            if (p.method, urlparse(p.url).path, p.param_name) not in swagger_keys
+        ]
+        logger.info(
+            f"Swagger {len(swagger_params)}건 + ZAP 보완 {len(deduped_zap)}건 "
+            f"(중복 제외 {len(results) - len(deduped_zap)}건) — 총 {len(swagger_params) + len(deduped_zap)}개"
+        )
+        return swagger_params + deduped_zap
+
     return results
 
 
@@ -405,6 +443,37 @@ def _extract_content_type(header: str) -> str:
     return ""
 
 
+def _pick_default_value(schema: dict, param: dict = None) -> str:
+    """
+    스키마/파라미터에서 baseline으로 쓸 값을 고른다.
+    우선순위: 명시된 default → enum 첫 값 → example → 타입별 제네릭 폴백("1"/"true").
+
+    enum이 정의된 필드(예: status)에 default가 없다고 무조건 "1"을 쓰면, 서버가 그 값을
+    무시하거나 거부해 baseline 응답 자체가 비정상이 되고, 이후 정상적인 enum 값으로 만든
+    test 요청과 비교할 때 실제로는 없는 차이가 이상 탐지로 잘못 잡히는 문제가 있었다.
+    enum 첫 값을 baseline으로 쓰면 최소한 "그 서비스가 실제로 받아들이는 값"에서
+    출발하므로 이 오탐이 크게 줄어든다.
+    """
+    if "default" in schema:
+        return str(schema["default"])
+    if param and "default" in param:
+        return str(param["default"])
+    enum_vals = schema.get("enum")
+    if enum_vals:
+        return str(enum_vals[0])
+    if param and "example" in param:
+        return str(param["example"])
+    if "example" in schema:
+        return str(schema["example"])
+    return {"boolean": "true"}.get(schema.get("type", ""), "1")
+
+
+def _extract_enum_values(schema: dict) -> str:
+    """스키마에 정의된 enum 후보값을 콤마 구분 문자열로 반환한다 (없으면 빈 문자열)."""
+    enum_vals = schema.get("enum")
+    return ",".join(str(v) for v in enum_vals) if enum_vals else ""
+
+
 def _resolve_path_params(path: str, *param_lists: list[dict]) -> str:
     """
     Swagger 경로의 `{name}` placeholder를 파라미터 스키마의 default/example 값으로 치환한다.
@@ -425,7 +494,7 @@ def _resolve_path_params(path: str, *param_lists: list[dict]) -> str:
             if not name or placeholder not in resolved:
                 continue
             schema = p.get("schema", {})
-            value = schema.get("default", schema.get("example", p.get("default", p.get("example", "1"))))
+            value = _pick_default_value(schema, p)
             resolved = resolved.replace(placeholder, str(value))
 
     # 스키마에 정의되지 않은 나머지 {placeholder}도 안전하게 "1"로 폴백
@@ -554,7 +623,7 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
 
             if binary_names:
                 field_defaults = {
-                    p.get("name", ""): str(p.get("schema", {}).get("default", p.get("default", "1")))
+                    p.get("name", ""): _pick_default_value(p.get("schema", {}), p)
                     for p in non_path_params if p.get("name")
                 }
                 multipart_raw_body = json.dumps(field_defaults, ensure_ascii=False)
@@ -578,7 +647,7 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
                 for param in params_list:
                     if param.get("in") in ("formData", "body"):
                         schema = param.get("schema", {})
-                        body_defaults[param.get("name", "")] = str(schema.get("default", param.get("default", "1")))
+                        body_defaults[param.get("name", "")] = _pick_default_value(schema, param)
                 body_defaults.pop("", None)
                 legacy_raw_body = json.dumps(body_defaults, ensure_ascii=False) if body_defaults else ""
 
@@ -590,7 +659,7 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
 
                     if param_type and name:
                         schema = param.get("schema", {})
-                        default_val = str(schema.get("default", param.get("default", "1")))
+                        default_val = _pick_default_value(schema, param)
                         results.append(CollectedParam(
                             url=full_url,
                             method=method,
@@ -599,6 +668,7 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
                             param_type=param_type,
                             content_type="application/json" if in_type == "body" else "application/x-www-form-urlencoded" if in_type == "formData" else "",
                             raw_body=legacy_raw_body if param_type == "body" else "",
+                            enum_values=_extract_enum_values(schema),
                         ))
 
             # 2. requestBody 파싱 (OpenAPI 3.0 구조)
@@ -616,14 +686,14 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
 
                 if schema.get("type") == "object":
                     properties = schema.get("properties", {})
-                    full_body = {name: str(prop.get("default", "1")) for name, prop in properties.items()}
+                    full_body = {name: _pick_default_value(prop) for name, prop in properties.items()}
                     raw_body = json.dumps(full_body, ensure_ascii=False) if full_body else ""
                     body_binary_names = {name for name, prop in properties.items() if _is_binary_schema(prop)}
                     effective_content_type = "multipart/form-data" if body_binary_names else content_type
                     binary_fields_str = ",".join(sorted(body_binary_names))
 
                     for prop_name, prop_obj in properties.items():
-                        default_val = str(prop_obj.get("default", "1"))
+                        default_val = _pick_default_value(prop_obj)
                         results.append(CollectedParam(
                             url=full_url,
                             method=method,
@@ -633,6 +703,7 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
                             content_type=effective_content_type,
                             raw_body=raw_body,
                             binary_fields=binary_fields_str,
+                            enum_values=_extract_enum_values(prop_obj),
                         ))
 
     logger.info(f"Swagger 파싱 완료: {len(results)}개 파라미터 수집")

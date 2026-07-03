@@ -1,0 +1,24 @@
+=== finding 1 ERROR_SUPPRESSED http://localhost:8080/api/v1/posts payload= PAID ===
+baseline_status 200 test_status 200
+baseline_body len 35445 | test_body len 127
+baseline_body[:300]: {"success":true,"data":{"posts":[{"postId":52,"title":"서울","content":"여기 진짜 너무 이뻐요!!!","type":"PHOTO","authorName":"hyeanseok","likeCount":0,"commentCount":6,"thumbnailUrl":"d2uhsv3yof2avo.cloudfront.net/posts/1d9428ae-6495-4306-9655-0ad06feb1aec.jpg","createdAt":"2026-06-17T23:19:33","rating":5},{"
+test_body[:300]: {"success":true,"data":{"posts":[],"totalCount":0},"message":"작업이 성공적으로 완료되었습니다.","timestamp":"2026-07-03T18:28:16.849566100Z"}
+
+=== finding 6 ERROR_SUPPRESSED http://localhost:8080/api/v1/posts payload= 1 ===
+baseline_status 200 test_status 200
+baseline_body len 35445 | test_body len 127
+baseline_body[:300]: {"success":true,"data":{"posts":[{"postId":52,"title":"서울","content":"여기 진짜 너무 이뻐요!!!","type":"PHOTO","authorName":"hyeanseok","likeCount":0,"commentCount":6,"thumbnailUrl":"d2uhsv3yof2avo.cloudfront.net/posts/1d9428ae-6495-4306-9655-0ad06feb1aec.jpg","createdAt":"2026-06-17T23:19:33","rating":5},{"
+test_body[:300]: {"success":true,"data":{"posts":[],"totalCount":0},"message":"작업이 성공적으로 완료되었습니다.","timestamp":"2026-07-03T18:28:16.922456200Z"}
+
+=== finding 7 DATA_EXPOSURE http://localhost:8080/api/v1/members/me/reservations/rooms payload= CONFIRMED ===
+baseline_status 200 test_status 200
+baseline_body len 144 | test_body len 514
+baseline_body[:300]: {"success":true,"data":{"content":[],"totalCount":0,"page":0,"size":20},"message":"숙소 예약 목록 조회 성공","timestamp":"2026-07-03T18:28:24.201489900Z"}
+test_body[:300]: {"success":true,"data":{"content":[{"reservationId":45,"accommodationName":"라마다 바이 윈덤 울란바토르 시티센터","roomName":"라마다 바이 윈덤 울란바토르 시티센터","checkIn":"2026-06-18","checkOut":"2026-06-19","totalPrice":120000.00,"status":"CONFIRMED"},{"reservationId":162,"accommodationName":"몽골어 비전 투어 게스트하우스","roomName":"몽골어 
+
+=== finding 8 POTENTIAL_IDOR http://localhost:8080/api/v1/members/me/reservations/flights payload= CONFIRMED ===
+baseline_status 200 test_status 200
+baseline_body len 144 | test_body len 658
+baseline_body[:300]: {"success":true,"data":{"content":[],"totalCount":0,"page":0,"size":20},"message":"항공 예약 목록 조회 성공","timestamp":"2026-07-03T18:28:24.575333500Z"}
+test_body[:300]: {"success":true,"data":{"content":[{"bookingId":7,"bookingCode":"BK-20260611-F139E0C0","flightNumber":"SW371","origin":"ICN","destination":"NRT","departureTime":"2026-06-11","arrivalTime":"2026-06-11","seatClass":"BUSINESS","passengerName":"BDFD","totalPrice":590000.00,"status":"CONFIRMED"},{"bookin
+
