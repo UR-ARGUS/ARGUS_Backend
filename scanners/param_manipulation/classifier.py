@@ -68,6 +68,7 @@ _FALLBACK_RULES: list[tuple[str, re.Pattern]] = [
 _DEFAULT_SEVERITY: dict[str, str] = {
     "PRIVILEGE_BYPASS":              "HIGH",
     "PERSISTED_PRIVILEGE_ESCALATION": "HIGH",
+    "PERSISTED_VALUE_ACCEPTED":      "HIGH",
     "VALUE_ACCEPTED":                "HIGH",
     "DATA_EXPOSURE":                 "HIGH",
     "POTENTIAL_IDOR":                "MEDIUM",

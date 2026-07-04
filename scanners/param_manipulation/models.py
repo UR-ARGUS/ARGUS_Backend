@@ -74,6 +74,10 @@ class Finding:
                            (Phase 3.5, verifier.py) 회원가입 등 응답에 role이 노출되지
                            않아 즉시 diff로는 무신호였으나, 로그인 후 프로필 재조회에서
                            주입한 값이 실제로 저장·반영된 것을 확인
+        PERSISTED_VALUE_ACCEPTED
+                           (Phase 3.5, verifier.py) 예약/주문 생성 등 응답에 가격이
+                           노출되지 않아 즉시 diff로는 무신호였으나, 생성된 리소스
+                           재조회에서 주입한 값이 실제로 저장·반영된 것을 확인
         VALUE_ACCEPTED     PRICE/PRIVILEGE/HIDDEN 필드의 기존 응답 값이 조작값으로 그대로 반영
         POTENTIAL_IDOR     test 200 + body 500byte↑ 증가 (타인 자원 노출 추정)
         DATA_EXPOSURE      test 응답에 baseline에 없던 JSON 키 출현

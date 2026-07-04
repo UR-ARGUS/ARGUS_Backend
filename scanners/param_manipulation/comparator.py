@@ -46,6 +46,14 @@ ERROR_KEYWORDS = [
 # POTENTIAL_IDOR 탐지 기준 응답 크기 증가량 (byte)
 _IDOR_BODY_DELTA_THRESHOLD = 500
 
+# 아래 모든 패턴이 "정상 처리된 응답"의 기준으로 200만 확인했었는데, 예약/주문
+# 생성처럼 새 리소스를 만드는 POST는 201 Created로 응답하는 게 REST 관례상 흔하다.
+# 200만 보면 이런 생성 엔드포인트는 조작값이 응답에 그대로 찍혀 있어도(VALUE_ACCEPTED
+# 대상) 상태 코드 조건에서부터 걸려 전부 조용히 무시된다 (실측: POST
+# .../reservations/flights가 201로 응답하며 totalPrice=1을 그대로 반영했는데도
+# 미탐지됨). 성공 응답으로 인정할 상태 코드를 200/201 둘 다로 넓힌다.
+_SUCCESS_STATUSES = (200, 201)
+
 
 def detect_anomaly(
     param:           ClassifiedParam,
@@ -76,11 +84,11 @@ def detect_anomaly(
         return None
 
     # ── 패턴 1: 권한 우회 ────────────────────────────────────────
-    if baseline["status"] in (401, 403) and test["status"] == 200:
+    if baseline["status"] in (401, 403) and test["status"] in _SUCCESS_STATUSES:
         anomaly_type   = "PRIVILEGE_BYPASS"
         anomaly_detail = (
             f"원본 응답 {baseline['status']} → "
-            f"조작 후 200 OK (권한 검증 우회 가능성)"
+            f"조작 후 {test['status']} (권한 검증 우회 가능성)"
         )
 
     # ── 패턴 2: 조작값이 그대로 응답에 반영됨 ───────────────────
@@ -91,7 +99,7 @@ def detect_anomaly(
     #  이미 존재하던 키의 값만 바뀌는 경우는 전혀 잡지 못했다.)
     elif (
         param.category in ("PRICE", "PRIVILEGE", "STATUS", "HIDDEN")
-        and test["status"] == 200
+        and test["status"] in _SUCCESS_STATUSES
     ):
         changed = _detect_value_changed_to_payload(
             baseline["body"], test["body"], payload_value
@@ -107,7 +115,7 @@ def detect_anomaly(
     # 전부 "타인 자원 노출"로 오탐한다.
     if anomaly_type is None and (
         param.category == "IDOR"
-        and test["status"] == 200
+        and test["status"] in _SUCCESS_STATUSES
         and len(test["body"]) - len(baseline["body"]) > _IDOR_BODY_DELTA_THRESHOLD
     ):
         delta          = len(test["body"]) - len(baseline["body"])
@@ -117,7 +125,7 @@ def detect_anomaly(
     # ── 패턴 4: 새로운 JSON 키 출현 ─────────────────────────────
     if anomaly_type is None:
         new_keys = _detect_new_json_keys(baseline["body"], test["body"])
-        if new_keys and test["status"] == 200:
+        if new_keys and test["status"] in _SUCCESS_STATUSES:
             anomaly_type   = "DATA_EXPOSURE"
             anomaly_detail = f"조작 후 신규 응답 필드 출현: {new_keys}"
 
@@ -126,7 +134,7 @@ def detect_anomaly(
         if (
             _has_error(baseline["body"])
             and not _has_error(test["body"])
-            and test["status"] == 200
+            and test["status"] in _SUCCESS_STATUSES
         ):
             anomaly_type   = "ERROR_SUPPRESSED"
             anomaly_detail = "에러 응답이 조작 후 사라짐 — 서버가 조작값을 수용한 것으로 추정"

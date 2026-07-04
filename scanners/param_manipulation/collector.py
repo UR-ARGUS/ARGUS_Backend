@@ -21,8 +21,9 @@ import logging
 import time
 import uuid
 from typing import Any
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urljoin
 
+import requests
 from zapv2 import ZAPv2
 
 from argus.core.config import settings
@@ -272,7 +273,22 @@ def collect_params(
     # ── 수집된 메시지에서 파라미터 추출 ──────────────────────────
     results: list[CollectedParam] = []
 
-    messages = zap.core.messages(baseurl=target_url, start=0, count=500)
+    # count=500을 한 번에 요청하면 요청/응답 바디가 큰 메시지(대용량 JS 번들 등)가
+    # 섞여있을 때 ZAP이 응답 JSON을 직렬화하다가 힙이 고갈되어 OutOfMemoryError로
+    # 커넥션이 끊기는 문제가 있었다 (실측: zap.log에 JSONArray.toString 중 OOM).
+    # 페이지 단위로 나눠 받아 한 번에 직렬화되는 응답 크기를 줄인다.
+    page_size = 100
+    messages: list[dict] = []
+    start = 0
+    while True:
+        page = zap.core.messages(baseurl=target_url, start=start, count=page_size)
+        if not page:
+            break
+        messages.extend(page)
+        if len(page) < page_size:
+            break
+        start += page_size
+
     for msg in messages:
         req_header   = msg.get("requestHeader", "")
         req_body     = msg.get("requestBody", "")
@@ -306,6 +322,17 @@ def collect_params(
 
     logger.info(f"ZAP 크롤링으로 수집된 파라미터: {len(results)}개")
 
+    # 실시간 재계산 위젯(예: 보험료 계산기)처럼 Ajax Spider가 같은 요청을 페이지
+    # 탐색 중 여러 번 캡처하는 엔드포인트가 있다 — 중복 제거 없이 그대로 두면
+    # 그 엔드포인트 하나의 파라미터가 캡처 횟수만큼 부풀려져 커버리지/페이로드
+    # 요청량을 왜곡한다 (실측: 보험료 계산 API 하나가 동일 payload로 10건 이상
+    # 중복 집계됨). collect_params 마지막에 한 번만 적용해 이후 로직(Swagger
+    # 병합 등)은 이미 중복 제거된 목록을 기준으로 동작하게 한다.
+    before_dedupe = len(results)
+    results = _dedupe_collected(results)
+    if before_dedupe != len(results):
+        logger.info(f"ZAP 중복 캡처 제거: {before_dedupe}개 → {len(results)}개")
+
     if swagger_params:
         # Swagger가 이미 다루는 (method, path, param_name) 조합은 ZAP 쪽에서 제외한다 —
         # 같은 API를 두 경로가 중복 수집하면 Phase 3 페이로드 주입 요청량이 배로 늘어남.
@@ -328,6 +355,26 @@ def collect_params(
 # ──────────────────────────────────────────────────────────────────
 # 내부 헬퍼
 # ──────────────────────────────────────────────────────────────────
+
+def _dedupe_collected(params: list[CollectedParam]) -> list[CollectedParam]:
+    """
+    (url, method, param_name, param_type, raw_body)가 완전히 같은 CollectedParam은
+    ZAP Ajax Spider가 크롤링 중 동일한 요청을 여러 번 캡처했을 때 생기는 순수 중복이다.
+    이걸 그대로 두면 Phase 3가 같은 요청을 여러 번 재전송하고, 결과적으로 같은
+    취약점 하나가 findings에 N번 찍혀 실제보다 부풀려진 개수로 보고된다
+    (실측: 보험료 계산 API 하나가 동일 payload로 10건씩 중복 집계됨).
+    각 조합의 첫 번째 항목만 남긴다.
+    """
+    seen: set[tuple] = set()
+    deduped: list[CollectedParam] = []
+    for p in params:
+        key = (p.url, p.method, p.param_name, p.param_type, p.raw_body)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(p)
+    return deduped
+
 
 def _parse_body_params(
     url: str,
@@ -515,9 +562,6 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
     """
     Swagger/OpenAPI JSON 스키마 명세를 요청하여 파싱한 뒤 파라미터들을 수집한다.
     """
-    import requests
-    from urllib.parse import urljoin, urlparse
-
     headers = {}
     if custom_header:
         custom_header = custom_header.strip()
@@ -535,6 +579,19 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
     # 쿼리스트링 제거하여 순수 Base URL 추출
     parsed_spec_url = urlparse(spec_url)
     clean_base_url = f"{parsed_spec_url.scheme}://{parsed_spec_url.netloc}{parsed_spec_url.path}".rstrip("/")
+
+    # 게이트웨이 뒤에 여러 마이크로서비스/모듈이 그룹별 문서로 나뉜 경우
+    # (예: user-api, booking-api 등), 아래 고정 4개 후보만으로는 게이트웨이 루트의
+    # 그룹 "목록" 문서만 보이고 각 그룹이 실제로 소유한 엔드포인트(스키마)는 전혀
+    # 수집되지 않는다. 그룹 목록 엔드포인트가 있으면 우선 그걸로 그룹별 spec을
+    # 전부 가져와 병합하고, 없으면(단일 모듈 서비스) 기존 고정 후보 방식으로 폴백한다.
+    grouped_specs = _discover_grouped_specs(clean_base_url, headers)
+    if grouped_specs:
+        results: list[CollectedParam] = []
+        for group_spec_url, group_spec in grouped_specs:
+            results.extend(_extract_params_from_spec(group_spec, group_spec_url))
+        logger.info(f"Swagger 그룹 스펙 {len(grouped_specs)}개 병합 파싱 완료: {len(results)}개 파라미터 수집")
+        return results
 
     # 스웨거 명세가 위치할 수 있는 경로 후보들 정의
     candidates = []
@@ -571,6 +628,76 @@ def _parse_swagger_spec(spec_url: str, custom_header: str = None) -> list[Collec
 
     if not spec:
         raise ValueError(f"제공된 URL({spec_url}) 또는 관련 후보 경로에서 유효한 Swagger OpenAPI Spec JSON을 찾을 수 없습니다.")
+
+    results = _extract_params_from_spec(spec, actual_used_url)
+    logger.info(f"Swagger 파싱 완료: {len(results)}개 파라미터 수집")
+    return results
+
+
+def _discover_grouped_specs(clean_base_url: str, headers: dict) -> list[tuple[str, dict]]:
+    """
+    springdoc(`/v3/api-docs/swagger-config`) 또는 springfox(`/swagger-resources`)의
+    그룹형 멀티 모듈 API 문서 목록 엔드포인트를 조회해, 그룹별 (spec_url, spec) 목록을
+    반환한다. 게이트웨이 하나에 여러 마이크로서비스가 물려 있는 서비스는 API 문서도
+    그룹별로 나뉘어 있는 경우가 흔한데, 이 목록 엔드포인트를 거치지 않으면 게이트웨이
+    루트에서 고정 경로(`/v3/api-docs` 등)로는 그룹 목록 문서만 보이고 각 그룹이 실제로
+    소유한 엔드포인트(스키마)는 전혀 수집되지 않는다.
+
+    그룹 목록 자체가 없는(= 단일 모듈 서비스) 경우 빈 리스트를 반환해 호출부가
+    기존 고정 후보 방식으로 폴백하게 한다.
+    """
+    group_list_candidates = [
+        (f"{clean_base_url}/v3/api-docs/swagger-config", "springdoc"),
+        (f"{clean_base_url}/swagger-resources", "springfox"),
+    ]
+
+    for list_url, kind in group_list_candidates:
+        try:
+            resp = requests.get(list_url, headers=headers, timeout=3)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+        except Exception:
+            continue
+
+        # springdoc: {"urls": [{"url": "/v3/api-docs/user-api", "name": "user-api"}, ...]}
+        # springfox: [{"url": "/v2/api-docs?group=user-api", "name": "user-api"}, ...]
+        entries = data.get("urls") if isinstance(data, dict) else data
+        if not isinstance(entries, list) or not entries:
+            continue
+
+        grouped: list[tuple[str, dict]] = []
+        for entry in entries:
+            group_path = entry.get("url") if isinstance(entry, dict) else None
+            if not group_path:
+                continue
+            group_spec_url = (
+                group_path if group_path.startswith("http")
+                else urljoin(clean_base_url + "/", group_path.lstrip("/"))
+            )
+            try:
+                spec_resp = requests.get(group_spec_url, headers=headers, timeout=3)
+                if spec_resp.status_code != 200:
+                    continue
+                group_spec = spec_resp.json()
+                if "paths" in group_spec or "openapi" in group_spec or "swagger" in group_spec:
+                    grouped.append((group_spec_url, group_spec))
+            except Exception:
+                continue
+
+        if grouped:
+            logger.info(
+                f"{kind} 그룹형 API 문서 발견 — {len(grouped)}개 그룹: "
+                f"{[u for u, _ in grouped]}"
+            )
+            return grouped
+
+    return []
+
+
+def _extract_params_from_spec(spec: dict, spec_url: str) -> list[CollectedParam]:
+    """파싱된 단일 OpenAPI/Swagger spec 딕셔너리에서 CollectedParam 목록을 추출한다."""
+    parsed_spec_url = urlparse(spec_url)
 
     # Base URL 해석
     # OpenAPI 3.0: servers[0].url
