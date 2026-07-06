@@ -143,7 +143,11 @@ def collect_params(
             context_id = zap.context.new_context(context_name)
 
             # 대상 URL을 컨텍스트에 포함
-            zap.context.include_in_context(context_name, f"{target_url.rstrip('/')}/.*")
+            # 뒤에 "/.*"만 붙이면 target_url 자체(트레일링 슬래시 없는 루트, 예: http://host:5173)는
+            # 이 정규식에 매치되지 않아 컨텍스트 밖으로 취급된다 — scan_as_user가
+            # "url_not_in_context"를 반환하며 크롤링 자체를 거부하는 문제가 있었다.
+            # 루트 URL 자체와 그 하위 경로를 모두 포함하도록 옵셔널 그룹으로 감싼다.
+            zap.context.include_in_context(context_name, f"{target_url.rstrip('/')}(/.*)?")
 
             # 로그인 파라미터 파싱
             login_url = login_config.get("login_url")

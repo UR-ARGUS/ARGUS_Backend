@@ -1,6 +1,7 @@
 from argus.core.celery_app import celery_app
 from argus.core.config import settings
 from scanners.param_manipulation.engine import run_scan
+from scanners.redirect_forward.engine import run_redirect_scan
 from dataclasses import asdict
 import json
 import logging
@@ -108,6 +109,83 @@ def run_scan_task(
     except Exception as e:
         logger.error(f"스캔 작업 실패: {e}")
         return {"status": "failed", "error": str(e), "target": target_url}
+
+def save_redirect_scan_result_json(task_id: str, findings: list) -> str:
+    # 1-3의 save_scan_result_json과 동일한 저장 방식 — capture_pipeline 등에서
+    # 동일한 규칙(파일명 접두어)으로 읽을 수 있도록 별도 접미사(_redirect)로 분리한다.
+    os.makedirs(settings.SCAN_RESULTS_DIR, exist_ok=True)
+    path = os.path.join(settings.SCAN_RESULTS_DIR, f"{task_id}_redirect.json")
+    findings_dict = [asdict(f) for f in findings]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(findings_dict, f, ensure_ascii=False, indent=2)
+    return path
+
+
+def save_redirect_scan_coverage_json(task_id: str, coverage: list) -> str:
+    # 후보로 선정돼 Phase 3(실 요청)까지 넘어간 파라미터 전체 목록 — "테스트했지만
+    # 이상없음"과 "애초에 후보로도 안 잡힘"을 구분하기 위한 사이드카 파일.
+    os.makedirs(settings.SCAN_RESULTS_DIR, exist_ok=True)
+    path = os.path.join(settings.SCAN_RESULTS_DIR, f"{task_id}_redirect_coverage.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(coverage, f, ensure_ascii=False, indent=2)
+    return path
+
+
+@celery_app.task(bind=True)
+def run_redirect_scan_task(
+    self,
+    target_url: str,
+    login_config: dict = None,
+    custom_header: str = None,
+    api_base_url: str = None,
+    max_wait_seconds: int = 120,
+    payload_host: str = None,
+):
+    """1-5(검증되지 않은 리다이렉트와 포워드, Reflected 전용) 스캔 작업."""
+    logger.info(f"1-5 리다이렉트/포워드(Reflected) 스캔 작업 시작: {target_url}")
+    try:
+        def report_progress(phase: str, percent: int):
+            self.update_state(state="PROGRESS", meta={"phase": phase, "percent": percent})
+
+        coverage_holder: list = []
+
+        def report_coverage(candidate_params: list):
+            coverage_holder.extend(candidate_params)
+
+        kwargs = dict(
+            max_wait_seconds=max_wait_seconds,
+            login_config=login_config,
+            custom_header=custom_header,
+            api_base_url=api_base_url,
+            progress_callback=report_progress,
+            coverage_callback=report_coverage,
+        )
+        if payload_host:
+            kwargs["payload_host"] = payload_host
+
+        findings = run_redirect_scan(target_url, **kwargs)
+
+        result_json_path = save_redirect_scan_result_json(self.request.id, findings)
+        coverage_json_path = save_redirect_scan_coverage_json(self.request.id, coverage_holder)
+        high_count = sum(1 for f in findings if f.severity == "HIGH")
+        logger.info(
+            f"1-5 스캔 작업 완료. 확정 Reflected findings {len(findings)}건 (HIGH: {high_count}) "
+            f"(결과 JSON: {result_json_path}, 커버리지({len(coverage_holder)}건): {coverage_json_path})"
+        )
+        return {
+            "status": "completed",
+            "target": target_url,
+            "results": {
+                "total_alerts": len(findings),
+                "findings": [asdict(f) for f in findings],
+            },
+            "result_json_path": result_json_path,
+            "coverage_json_path": coverage_json_path,
+        }
+    except Exception as e:
+        logger.error(f"1-5 스캔 작업 실패: {e}")
+        return {"status": "failed", "error": str(e), "target": target_url}
+
 
 @celery_app.task
 def run_capture_task(target_url: str):
