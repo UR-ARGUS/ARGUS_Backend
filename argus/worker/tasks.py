@@ -167,9 +167,11 @@ def run_redirect_scan_task(
 
         result_json_path = save_redirect_scan_result_json(self.request.id, findings)
         coverage_json_path = save_redirect_scan_coverage_json(self.request.id, coverage_holder)
-        high_count = sum(1 for f in findings if f.severity == "HIGH")
+        confirmed = [f for f in findings if f.confirmed_redirect]
+        high_count = sum(1 for f in confirmed if f.severity == "HIGH")
         logger.info(
-            f"1-5 스캔 작업 완료. 확정 Reflected findings {len(findings)}건 (HIGH: {high_count}) "
+            f"1-5 스캔 작업 완료. 확정 리다이렉트/포워드 findings {len(confirmed)}건 (HIGH: {high_count}), "
+            f"반사만 확인된 참고 findings {len(findings) - len(confirmed)}건 "
             f"(결과 JSON: {result_json_path}, 커버리지({len(coverage_holder)}건): {coverage_json_path})"
         )
         return {

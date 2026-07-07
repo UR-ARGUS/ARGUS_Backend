@@ -10,9 +10,9 @@ SK Shieldus Web/API 개발보안 Guideline v3.0.0 / 항목 1-5
       (Reflected 전용). 응답을 저장했다가 다른 요청에서 실행되는 Stored 케이스는
       별도의 생성→저장 확인→트리거 흐름이 필요해 범위 밖 — 1-3의 verifier.py 같은
       후속 검증 단계는 이 모듈에 없다.
-    - 반영 여부는 결정적 규칙(Location 헤더 / meta refresh / JS location 대입에
-      payload_host 문자열 노출)로만 판단한다 — 1-3과 달리 이 항목은 판단이 모호하지
-      않아 LLM 해석 단계(Phase 4)가 필요 없다.
+    - 반영 여부는 결정적 규칙(Location 헤더 / meta refresh / JS location 대입 /
+      응답 본문 내 단순 반사에 payload_host 문자열 노출)로만 판단한다 — 1-3과 달리
+      이 항목은 판단이 모호하지 않아 LLM 해석 단계(Phase 4)가 필요 없다.
 
 주의:
     - allow_redirects=False로 요청해 Location 헤더를 직접 확인한다. requests가
@@ -43,9 +43,10 @@ _META_REFRESH_RE = re.compile(
     re.IGNORECASE,
 )
 
-# location.href = "..." / window.location = "..." / location.replace("...") / .assign("...") 형태
+# location.href = "..." / window.location = "..." / document.location = "..." /
+# location.replace("...") / .assign("...") 형태
 _JS_REDIRECT_RE = re.compile(
-    r'(?:window\.)?location(?:\.href)?\s*(?:=|\.replace\(|\.assign\()\s*["\']([^"\']+)["\']',
+    r'(?:(?:window|document)\.)?location(?:\.href)?\s*(?:=|\.replace\(|\.assign\()\s*["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
 
@@ -111,6 +112,7 @@ def _judge(
             evidence=f"Location: {location}",
             baseline_status=baseline["status"], test_status=test["status"],
             severity="HIGH",
+            confirmed_redirect=True,
             description=(
                 f"'{c.param_name}' 파라미터에 주입한 미검증 외부 목적지가 서버 검증 없이 "
                 f"HTTP {test['status']} 응답의 Location 헤더에 그대로 반영됩니다. "
@@ -125,9 +127,18 @@ def _judge(
         )
 
     # ── 패턴 2/3: 응답 본문 내 클라이언트 사이드 리다이렉트 반영 ──
-    if test["status"] in _SUCCESS_STATUSES and test.get("body"):
-        meta_match = _META_REFRESH_RE.search(test["body"])
-        if meta_match and host_needle in meta_match.group(1).lower():
+    # 3xx 응답이라도 body에 meta refresh/JS redirect가 함께 포함될 수 있으므로
+    # 상태코드 조건 없이 body 유무만으로 검사한다.
+    # search()로 첫 매치 하나만 보면, 페이로드와 무관한 조건부 리다이렉트가 본문
+    # 앞부분에 먼저 나오고 실제 반영은 뒤쪽 매치에서만 일어나는 경우(SPA 라우팅
+    # 분기 등)를 놓친다 — finditer()로 모든 매치를 훑어 payload_host가 하나라도
+    # 나오면 반영으로 판정한다.
+    if test.get("body"):
+        meta_match = next(
+            (m for m in _META_REFRESH_RE.finditer(test["body"]) if host_needle in m.group(1).lower()),
+            None,
+        )
+        if meta_match:
             return RedirectFinding(
                 url=c.url, method=c.method, param_name=c.param_name,
                 payload_used=payload_val, payload_description=payload_desc,
@@ -135,6 +146,7 @@ def _judge(
                 evidence=meta_match.group(0)[:300],
                 baseline_status=baseline["status"], test_status=test["status"],
                 severity="MEDIUM",
+                confirmed_redirect=True,
                 description=(
                     f"'{c.param_name}' 파라미터에 주입한 미검증 외부 목적지가 응답 본문의 "
                     f"<meta http-equiv=\"refresh\"> 태그에 그대로 반영되어, 브라우저가 페이지를 "
@@ -147,8 +159,11 @@ def _judge(
                 request_body=test.get("request_body", ""),
             )
 
-        js_match = _JS_REDIRECT_RE.search(test["body"])
-        if js_match and host_needle in js_match.group(1).lower():
+        js_match = next(
+            (m for m in _JS_REDIRECT_RE.finditer(test["body"]) if host_needle in m.group(1).lower()),
+            None,
+        )
+        if js_match:
             return RedirectFinding(
                 url=c.url, method=c.method, param_name=c.param_name,
                 payload_used=payload_val, payload_description=payload_desc,
@@ -156,6 +171,7 @@ def _judge(
                 evidence=js_match.group(0)[:300],
                 baseline_status=baseline["status"], test_status=test["status"],
                 severity="MEDIUM",
+                confirmed_redirect=True,
                 description=(
                     f"'{c.param_name}' 파라미터에 주입한 미검증 외부 목적지가 응답에 포함된 "
                     f"JavaScript의 location 대입 코드에 그대로 반영되어, 페이지 로드 시 브라우저가 "
@@ -164,6 +180,38 @@ def _judge(
                 recommendation=(
                     "JS로 처리하는 리다이렉트도 서버가 내려준 값이 화이트리스트 안에 있는지 "
                     f"검증한 뒤에만 location에 대입하도록 하세요. ({_GUIDE_REFERENCE})"
+                ),
+                request_body=test.get("request_body", ""),
+            )
+
+        # ── 패턴 4: 단순 반사(Reflected) — 리다이렉트 문맥(Location/meta refresh/JS 대입)과
+        # 무관하게, 주입한 외부 목적지 문자열이 응답 본문에 검증 없이 그대로 노출되는지만 본다.
+        # 위 패턴들이 이미 실제 리다이렉트 실행 증거를 잡아내므로, 여기서는 그 외 나머지
+        # 케이스(JSON 필드 echo, 에러 메시지 등)에서 payload_host 문자열 자체가 그대로
+        # 반사되는지만 결정적으로 판별한다.
+        body_lower = test["body"].lower()
+        if host_needle in body_lower:
+            idx = body_lower.find(host_needle)
+            snippet = test["body"][max(0, idx - 100): idx + 100]
+            return RedirectFinding(
+                url=c.url, method=c.method, param_name=c.param_name,
+                payload_used=payload_val, payload_description=payload_desc,
+                detection_type="REFLECTED_VALUE",
+                evidence=snippet,
+                baseline_status=baseline["status"], test_status=test["status"],
+                severity="LOW",
+                confirmed_redirect=False,
+                description=(
+                    f"[반사만 확인됨 — 리다이렉트 실행 증거 없음] '{c.param_name}' 파라미터에 주입한 "
+                    f"미검증 외부 목적지 문자열이 응답 본문에 검증 없이 그대로 반사(echo)됩니다. "
+                    f"Location 헤더/meta refresh/JS location 대입 등 실제 리다이렉트 실행 증거는 "
+                    f"확인되지 않았으므로 1-5 확정 취약점은 아니며, 참고용 정보 노출 신호로만 "
+                    f"취급해야 합니다. (예: 타입 검증 실패 에러 메시지가 입력값을 그대로 포함하는 "
+                    f"경우에도 이 패턴이 발생하며, 이는 실제 리다이렉트와 무관합니다.)"
+                ),
+                recommendation=(
+                    "사용자 입력을 응답에 반사하기 전에 화이트리스트 검증을 적용하거나, 반사가 "
+                    f"불필요하다면 해당 값을 응답에서 제거하세요. ({_GUIDE_REFERENCE})"
                 ),
                 request_body=test.get("request_body", ""),
             )
@@ -228,7 +276,7 @@ def _send(c: CollectedParam, value: str, custom_header: str = None) -> dict:
         return {
             "status":       resp.status_code,
             "body":         resp.text,
-            "location":     resp.headers.get("Location", "") or resp.headers.get("location", ""),
+            "location":     resp.headers.get("Location", ""),  # CaseInsensitiveDict이므로 단일 조회로 충분
             "request_body": request_body_repr,
         }
 

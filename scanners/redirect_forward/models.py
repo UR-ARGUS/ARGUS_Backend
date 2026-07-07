@@ -35,9 +35,18 @@ class RedirectFinding:
                          주입한 외부 목적지가 그대로 노출 (클라이언트 사이드)
         JS_REDIRECT      200 응답 본문의 location.href / location.replace(/.assign() 등
                          JS 대입문에 주입한 외부 목적지가 그대로 노출 (클라이언트 사이드)
+        REFLECTED_VALUE  위 세 리다이렉트 문맥에 해당하지 않지만, 주입한 외부 목적지
+                         문자열이 응답 본문에 그대로 반사(echo)됨 (실제 리다이렉트 실행
+                         증거는 없음 — 반사만 확인된 상태)
 
     severity: HIGH(서버 사이드 확정) | MEDIUM(클라이언트 사이드 — 실제 렌더링/실행 여부는
-              Selenium 등 브라우저 재현으로 추가 확인 권장)
+              Selenium 등 브라우저 재현으로 추가 확인 권장) | LOW(단순 반사 — 리다이렉트
+              실행 증거 없음)
+
+    confirmed_redirect: 실제 리다이렉트 실행 증거(Location/meta refresh/JS 대입)가 있으면
+              True (LOCATION_HEADER/META_REFRESH/JS_REDIRECT). REFLECTED_VALUE처럼 값이
+              반사된 것만 확인되고 리다이렉트 실행 증거가 없으면 False — 1-5 확정
+              취약점이 아니라 참고용 정보 노출 신호로 별도 취급해야 한다.
     """
 
     url: str
@@ -52,4 +61,5 @@ class RedirectFinding:
     severity: str
     description: str
     recommendation: str
+    confirmed_redirect: bool = True  # False면 "반사만 확인됨" — 리다이렉트 실행 증거 없음
     request_body: str = ""  # 실제 전송한 테스트 요청 바디/쿼리 (증적)

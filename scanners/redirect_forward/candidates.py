@@ -39,17 +39,25 @@ _REDIRECT_NAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# camelCase 파라미터명 보조 패턴 — returnUrl, redirectUrl, nextPage, successUrl 등
-# snake_case 패턴의 단어 경계(_)로는 못 잡는 표기법을 커버한다.
+# camelCase / 대소문자 혼합 파라미터명 보조 패턴 — returnUrl, redirectUrl, nextPage, successUrl,
+# redirectUri(전부 소문자), redirectURI(전부 대문자) 등 표기 불규칙 케이스까지 커버한다.
+# re.IGNORECASE 적용으로 suffix(url/uri/page …)를 소문자 단일 표현으로 단순화.
 _REDIRECT_CAMEL_PATTERN = re.compile(
     r"(return|redirect|forward|continue|callback|success|fail|logout|checkout|target|dest|next)"
-    r"(Url|URL|Uri|URI|Page|To|Path|Link|Href)$"
+    r"(url|uri|page|to|path|link|href)$",
+    re.IGNORECASE,
 )
 
 # 값 자체가 URL/경로 형태인지 판별 — 이름만으로는 애매한 파라미터(예: "go", "page")를
 # 값 신호로 보강할 때 사용한다.
 _URL_LIKE_VALUE_PATTERN = re.compile(r"^(https?://|//|/)", re.IGNORECASE)
 _WEAK_NAME_HINT_PATTERN = re.compile(r"url|link|path|page|go\b|move|nav", re.IGNORECASE)
+
+# 검색(search) 엔드포인트 경로 판별 — 1-5를 실무에서 테스트할 때 가장 먼저 들여다보는
+# 지점이다. 검색 결과/에러 응답이 입력값을 검증 없이 그대로 반사(echo)하는 경우가 흔해,
+# 파라미터명이 리다이렉트 이름 규칙에 안 맞아도 검색 엔드포인트의 파라미터는 전부
+# Reflected 후보로 포함한다.
+_SEARCH_PATH_PATTERN = re.compile(r"(^|/|_|-)search($|/|_|-|\?)", re.IGNORECASE)
 
 
 def select_candidates(params: list[CollectedParam]) -> list[RedirectCandidate]:
@@ -84,6 +92,15 @@ def select_candidates(params: list[CollectedParam]) -> list[RedirectCandidate]:
                     f"파라미터명 '{p.param_name}'에 약한 네비게이션 신호가 있고, "
                     f"값이 URL/경로 형태({p.param_value!r})"
                 ),
+            ))
+            continue
+
+        # 검색 엔드포인트는 이름 규칙과 무관하게 파라미터 전체를 후보로 포함 —
+        # 검색 결과/에러 응답이 입력값을 그대로 반사하는 경우가 실무적으로 흔하다.
+        if _SEARCH_PATH_PATTERN.search(p.url or ""):
+            candidates.append(RedirectCandidate(
+                collected=p,
+                reason=f"검색 엔드포인트('{p.url}')의 파라미터라 이름 규칙과 무관하게 후보로 포함",
             ))
 
     logger.info(

@@ -58,8 +58,13 @@ def run_redirect_scan(
                             각 원소는 {"url", "method", "param_name", "reason"}.
 
     Returns:
-        List[RedirectFinding] — Reflected 리다이렉트/포워드가 확인된 항목만 (결정적 규칙
-        기반 판정이므로 1-3과 달리 "미확정" 상태 없이 전부 확정 findings).
+        List[RedirectFinding] — 결정적 규칙 기반 판정이므로 1-3과 달리 "미확정" 상태는 없지만,
+        confirmed_redirect 값으로 두 종류가 섞여 있다:
+          - confirmed_redirect=True  : Location 헤더/meta refresh/JS location 대입에서
+                                        실제 리다이렉트 실행 증거가 확인된 1-5 확정 findings
+          - confirmed_redirect=False : REFLECTED_VALUE — 주입 값이 응답에 반사된 것만
+                                        확인되고 리다이렉트 실행 증거는 없는 참고용 findings
+                                        (1-5 확정 취약점 아님)
     """
     def report(phase: str, percent: int) -> None:
         if not progress_callback:
@@ -120,11 +125,14 @@ def run_redirect_scan(
         findings.extend(probe_candidate(candidate, payload_host=payload_host, custom_header=custom_header))
         report("probe", int((i + 1) / len(candidates) * 100))
 
-    high_count   = sum(1 for f in findings if f.severity == "HIGH")
-    medium_count = sum(1 for f in findings if f.severity == "MEDIUM")
+    confirmed = [f for f in findings if f.confirmed_redirect]
+    reflected_only = [f for f in findings if not f.confirmed_redirect]
+    high_count   = sum(1 for f in confirmed if f.severity == "HIGH")
+    medium_count = sum(1 for f in confirmed if f.severity == "MEDIUM")
     logger.info(
-        f"[1-5][완료] 후보 {len(candidates)}건 검사 — 확정 Reflected findings: {len(findings)}건 "
-        f"(HIGH: {high_count}, MEDIUM: {medium_count})"
+        f"[1-5][완료] 후보 {len(candidates)}건 검사 — "
+        f"확정 리다이렉트/포워드 findings: {len(confirmed)}건 (HIGH: {high_count}, MEDIUM: {medium_count}) / "
+        f"반사만 확인된 참고 findings: {len(reflected_only)}건 (리다이렉트 실행 증거 없음, 1-5 확정 아님)"
     )
 
     return findings

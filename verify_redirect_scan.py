@@ -105,28 +105,41 @@ def main() -> None:
     findings = run_redirect_scan(args.url, **kwargs)
     print()
 
-    high_count = sum(1 for f in findings if f.severity == "HIGH")
-    medium_count = sum(1 for f in findings if f.severity == "MEDIUM")
+    confirmed = [f for f in findings if f.confirmed_redirect]
+    reflected_only = [f for f in findings if not f.confirmed_redirect]
+    high_count = sum(1 for f in confirmed if f.severity == "HIGH")
+    medium_count = sum(1 for f in confirmed if f.severity == "MEDIUM")
 
     print("\n결과 요약")
     print(f"  후보로 선정된 파라미터 수: {len(coverage)}")
-    print(f"  확정 Reflected findings: {len(findings)} (HIGH: {high_count}, MEDIUM: {medium_count})")
+    print(f"  확정 리다이렉트/포워드 findings: {len(confirmed)} (HIGH: {high_count}, MEDIUM: {medium_count})")
+    print(f"  반사만 확인된 참고 findings: {len(reflected_only)} (리다이렉트 실행 증거 없음, 1-5 확정 아님)")
 
     if coverage:
         print("\n  --- 후보 파라미터 (Phase 2) ---")
         for c in coverage:
             print(f"  {c['method']} {c['url']} | {c['param_name']} ({c['reason']})")
 
-    if findings:
-        print("\n  --- 확정 Findings ---")
-        for f in findings:
+    if confirmed:
+        print("\n  --- 확정 리다이렉트/포워드 Findings ---")
+        for f in confirmed:
             print(f"  [{f.severity:6}] {f.detection_type}")
             print(f"           URL:   {f.method} {f.url}")
             print(f"           Param: {f.param_name} = {f.payload_used!r}")
             print(f"           Evidence: {f.evidence[:200]}")
             print()
-    else:
-        print("\n  [!] 확정 findings 0건 — 후보 파라미터 수가 0이면 크롤링/이름규칙 매칭 실패,")
+
+    if reflected_only:
+        print("\n  --- 반사만 확인된 참고 Findings (리다이렉트 실행 증거 없음, 1-5 확정 아님) ---")
+        for f in reflected_only:
+            print(f"  [{f.severity:6}] {f.detection_type}")
+            print(f"           URL:   {f.method} {f.url}")
+            print(f"           Param: {f.param_name} = {f.payload_used!r}")
+            print(f"           Evidence: {f.evidence[:200]}")
+            print()
+
+    if not findings:
+        print("\n  [!] findings 0건 — 후보 파라미터 수가 0이면 크롤링/이름규칙 매칭 실패,")
         print("      후보는 있는데 findings가 0이면 실제로 안전하거나 페이로드가 안 먹힌 것.")
 
     import os

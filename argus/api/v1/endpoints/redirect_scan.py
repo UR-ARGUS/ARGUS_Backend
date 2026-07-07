@@ -38,6 +38,13 @@ class RedirectScanRequestSchema(BaseModel):
         description=f"리다이렉트 목적지로 주입할 미검증 외부 호스트 (기본값: {DEFAULT_PAYLOAD_HOST}). "
                     "이 문자열이 대상 서비스의 실제 도메인과 겹치면 오탐이 발생하므로 필요 시 변경한다.",
     )
+    max_wait_seconds: Optional[int] = Field(
+        120,
+        ge=10,
+        le=600,
+        description="ZAP Ajax Spider 크롤링 완료 대기 최대 시간(초). 기본값 120. "
+                    "SPA 규모가 클수록 높게 설정한다 (최대 600).",
+    )
 
 
 @router.post("/")
@@ -48,6 +55,7 @@ def trigger_redirect_scan(payload: RedirectScanRequestSchema):
         custom_header=payload.custom_header,
         api_base_url=str(payload.api_base_url) if payload.api_base_url else None,
         payload_host=payload.payload_host,
+        max_wait_seconds=payload.max_wait_seconds,
     )
     return {"message": "1-5 Redirect/Forward(Reflected) scan triggered successfully", "task_id": task.id}
 

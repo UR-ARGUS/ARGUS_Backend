@@ -281,11 +281,27 @@ def collect_params(
     # 섞여있을 때 ZAP이 응답 JSON을 직렬화하다가 힙이 고갈되어 OutOfMemoryError로
     # 커넥션이 끊기는 문제가 있었다 (실측: zap.log에 JSONArray.toString 중 OOM).
     # 페이지 단위로 나눠 받아 한 번에 직렬화되는 응답 크기를 줄인다.
-    page_size = 100
+    # page_size=50: 172건 수집 환경에서 100이 OOM을 유발했으므로 절반으로 설정.
+    page_size = 50
     messages: list[dict] = []
     start = 0
     while True:
-        page = zap.core.messages(baseurl=target_url, start=start, count=page_size)
+        # ZAP OOM으로 커넥션이 끊길 경우 3초 대기 후 1회 재시도한다.
+        page = []
+        for attempt in range(2):
+            try:
+                page = zap.core.messages(baseurl=target_url, start=start, count=page_size)
+                break
+            except Exception as e:
+                if attempt == 0:
+                    logger.warning(
+                        f"ZAP messages 요청 실패 (start={start}) — 3초 후 재시도: {e}"
+                    )
+                    time.sleep(3)
+                else:
+                    logger.error(
+                        f"ZAP messages 재시도도 실패 (start={start}) — 해당 페이지 건너뜀: {e}"
+                    )
         if not page:
             break
         messages.extend(page)
